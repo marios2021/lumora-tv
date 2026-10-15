@@ -1,0 +1,15 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="0"
+                android:endColor="@color/brand"
+                android:startColor="@color/brand_dark" />
+        </shape>
+    </item>
+    <item
+        android:width="108dp"
+        android:height="108dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_logo_mark" />
+</layer-list>

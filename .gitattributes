@@ -1,0 +1,10 @@
+# Normalize text files in the repo; check out with the platform's line endings.
+* text=auto
+
+# Shell scripts must keep LF to run on Linux and macOS; batch files need CRLF.
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.jar binary
+*.png binary

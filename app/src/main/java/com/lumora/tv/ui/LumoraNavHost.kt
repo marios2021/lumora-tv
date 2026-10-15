@@ -1,0 +1,133 @@
+package com.lumora.tv.ui
+
+import android.net.Uri
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.lumora.tv.data.repo.GroupSelection
+import com.lumora.tv.ui.common.appContainer
+import com.lumora.tv.ui.guide.GuideScreen
+import kotlinx.coroutines.flow.first
+import com.lumora.tv.ui.home.HomeScreen
+import com.lumora.tv.ui.player.PlayerScreen
+import com.lumora.tv.ui.playlists.AddPlaylistScreen
+import com.lumora.tv.ui.playlists.PlaylistsScreen
+import com.lumora.tv.ui.settings.SettingsScreen
+
+private object Routes {
+    const val HOME = "home"
+    const val PLAYLISTS = "playlists"
+    const val ADD_PLAYLIST = "add_playlist"
+    const val EDIT_PLAYLIST = "edit_playlist/{playlistId}"
+    fun editPlaylist(playlistId: Long) = "edit_playlist/$playlistId"
+    const val SETTINGS = "settings"
+    const val PLAYER = "player/{channelId}?context={context}"
+    fun player(channelId: Long, context: GroupSelection) = "player/$channelId?context=" + Uri.encode(context.encode())
+    const val GUIDE = "guide/{playlistId}?context={context}&channel={channel}"
+    fun guide(playlistId: Long, context: GroupSelection, channelId: Long = -1) =
+        "guide/$playlistId?context=" + Uri.encode(context.encode()) + "&channel=$channelId"
+}
+
+@Composable
+fun LumoraNavHost() {
+    val nav = rememberNavController()
+    val container = appContainer()
+
+    // "Start on last channel": once per app launch, go straight to the player.
+    var startChecked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (startChecked) return@LaunchedEffect
+        startChecked = true
+        if (!container.settings.settings.first().startOnLastChannel) return@LaunchedEffect
+        val channel = container.playlists.channel(container.settings.lastChannel.first()) ?: return@LaunchedEffect
+        container.settings.setActivePlaylist(channel.playlistId)
+        nav.navigate(Routes.player(channel.id, GroupSelection.All))
+    }
+    NavHost(navController = nav, startDestination = Routes.HOME) {
+        composable(Routes.HOME) {
+            HomeScreen(
+                onPlay = { id, context -> nav.navigate(Routes.player(id, context)) },
+                onOpenPlaylists = { nav.navigate(Routes.PLAYLISTS) },
+                onAddPlaylist = { nav.navigate(Routes.ADD_PLAYLIST) },
+                onOpenGuide = { playlistId, context -> nav.navigate(Routes.guide(playlistId, context)) },
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+            )
+        }
+        composable(
+            Routes.GUIDE,
+            arguments = listOf(
+                navArgument("playlistId") { type = NavType.LongType },
+                navArgument("context") {
+                    type = NavType.StringType
+                    nullable = true
+                },
+                navArgument("channel") {
+                    type = NavType.LongType
+                    defaultValue = -1L
+                },
+            ),
+        ) { entry ->
+            val args = entry.arguments
+            GuideScreen(
+                playlistId = args?.getLong("playlistId") ?: 0L,
+                context = GroupSelection.decode(args?.getString("context")),
+                startChannelId = args?.getLong("channel")?.takeIf { it > 0 },
+                // Guide -> player always leaves home -> player on the stack, so Back returns to the list.
+                onPlay = { channelId, context ->
+                    nav.navigate(Routes.player(channelId, context)) { popUpTo(Routes.HOME) }
+                },
+            )
+        }
+        composable(Routes.PLAYLISTS) {
+            PlaylistsScreen(
+                onAddPlaylist = { nav.navigate(Routes.ADD_PLAYLIST) },
+                onEditPlaylist = { nav.navigate(Routes.editPlaylist(it)) },
+                onDone = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.ADD_PLAYLIST) {
+            AddPlaylistScreen(
+                editId = null,
+                onDone = { nav.popBackStack(Routes.HOME, inclusive = false) },
+            )
+        }
+        composable(
+            Routes.EDIT_PLAYLIST,
+            arguments = listOf(navArgument("playlistId") { type = NavType.LongType }),
+        ) { entry ->
+            AddPlaylistScreen(
+                editId = entry.arguments?.getLong("playlistId"),
+                onDone = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.SETTINGS) {
+            SettingsScreen()
+        }
+        composable(
+            Routes.PLAYER,
+            arguments = listOf(
+                navArgument("channelId") { type = NavType.LongType },
+                navArgument("context") {
+                    type = NavType.StringType
+                    nullable = true
+                },
+            ),
+        ) { entry ->
+            PlayerScreen(
+                channelId = entry.arguments?.getLong("channelId") ?: 0L,
+                context = GroupSelection.decode(entry.arguments?.getString("context")),
+                onOpenGuide = { playlistId, context, channelId ->
+                    nav.navigate(Routes.guide(playlistId, context, channelId)) { popUpTo(Routes.HOME) }
+                },
+            )
+        }
+    }
+}

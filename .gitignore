@@ -1,0 +1,21 @@
+# Gradle / Kotlin build output and caches
+.gradle/
+.kotlin/
+build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Machine-specific
+/local.properties
+*.iml
+/.idea/
+.DS_Store
+Thumbs.db
+
+# Signing keys and built packages
+*.jks
+*.keystore
+keystore.properties
+*.apk
+*.aab
