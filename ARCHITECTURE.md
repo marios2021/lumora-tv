@@ -44,6 +44,7 @@ Data flows one way: **Repository → Flow → ViewModel StateFlow → Compose**.
 - **favorites**: playlistId + channelKey. Kept in a separate table so favorites survive a playlist refresh.
 - **locked_groups**: playlistId + groupTitle, for the parental lock (milestone 7). Also kept by name, so locks survive a refresh.
 - **vod**: movies and series of Xtream playlists (kind, provider id, name, category, poster, rating, year, file type). Details, seasons and episodes are fetched when a title is opened.
+- **recordings**: channel, title, stream URL, recording window, status (scheduled, recording, done, failed), file and size. Not tied to a playlist, so recordings outlive it.
 - **playback_progress**: playlistId + content key (`movie:<id>` / `episode:<id>`), position, duration, and the series an episode belongs to.
 - **programs**: playlistId, epgKey, start, stop, title, description. Only programmes from 6 hours ago to 7 days ahead are kept, and only for channels that matched.
 
@@ -66,6 +67,7 @@ Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   │ Menu/top bar
   ├─▶ Search ──▶ Player, Guide at a programme, or a movie / series
   ├─▶ Movies / Series (Xtream) ──▶ Details ──▶ VOD player
+  ├─▶ Recordings ──▶ VOD player
   ├─▶ Guide (EPG grid)
   ├─▶ Playlists ──▶ Add playlist
   └─▶ Settings
@@ -82,8 +84,9 @@ Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   - OK or Info toggles the info overlay; it also appears for 5 s on every channel change.
   - Back closes the overlay first, then leaves the player. The list re-focuses the last channel watched.
   - Menu (or Guide, where the system doesn't reserve it) opens the TV guide on the current channel.
+  - Hold OK (or the Record key) records the channel until the current programme ends; hold again to stop.
   - ◀ / Rewind goes back 10 s (up to 30 s), ▶ / Fast-forward goes forward again and rejoins live; Play/Pause pauses live TV. A badge shows how far behind live you are.
-- In the TV guide: ▲▼ channels, ◀▶ previous/next programme, CH+/CH- page, 0 jumps to now, OK watches the selected channel, or plays an ended programme from the archive on channels with catch-up. It shows the group you opened it from, or All channels if that group is empty.
+- In the TV guide: ▲▼ channels, ◀▶ previous/next programme, CH+/CH- page, 0 jumps to now, OK watches the selected channel, or plays an ended programme from the archive on channels with catch-up. Hold OK records the programme (or cancels its recording). It shows the group you opened it from, or All channels if that group is empty.
 
 ## Milestones
 
@@ -140,5 +143,15 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - Xtream streams with `tv_archive` keep their archive length (`tv_archive_duration` days); the panel's time zone comes from `server_info.timezone` at login. M3U channels read `catchup`, `catchup-days` (or `timeshift` / `tvg-rec`) and `catchup-source`.
 - `Catchup` builds the archive URL: **xc** (`/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{id}.ts`, time in the panel's zone), **default** (template), **append**, **shift** (`utc` / `lutc`) and **flussonic**. Templates understand `{utc}` `{start}` `{end}` `{lutc}` `{now}` `{duration}` `{duration:60}` `{offset}` `{Y}{m}{d}{H}{M}{S}`, with or without `$`.
 - The guide keeps programmes as far back as the longest archive (up to 7 days) and lets you scroll back that far. Ended programmes on archived channels show a history icon; OK plays them in the seekable player, and Back returns to the guide.
+
+### Recording (milestone 10)
+
+- **Record now** from the player (hold OK, the Record key, or the record button on touch screens): until the current programme ends plus 2 minutes, or for an hour without guide data. A REC badge shows while it runs.
+- **Schedule** from the guide (hold OK, or long-press on touch): from 1 minute before the programme to 2 minutes after. Programmes set to record get a red dot. A programme already on starts recording at once.
+- `RecordingService` is a foreground service (type dataSync) with a notification, so recordings carry on in the background. Several can run at once.
+- Scheduled recordings are started by exact alarms (`USE_EXACT_ALARM` on Android 13+, `SCHEDULE_EXACT_ALARM` before), which also lets the service start while the app is in the background. Alarms are set again after a reboot or app update; recordings cut off by a restart keep what was saved.
+- `Recorder` copies plain HTTP streams byte for byte (reconnecting if the stream drops) and records HLS by polling the media playlist and appending each new TS segment. Encrypted or fMP4 HLS can't be recorded.
+- Files are MPEG-TS in the app's storage (`Android/data/com.lumora.tv/files/Recordings`, no storage permission). The Recordings screen plays, stops, cancels and deletes them; playback uses the seekable player.
+- Recording uses its own connection to the provider. Accounts limited to one connection can't record one channel while watching another.
 
 Later: multi-view, picture-in-picture.

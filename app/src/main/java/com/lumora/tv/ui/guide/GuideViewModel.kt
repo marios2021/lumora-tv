@@ -3,6 +3,10 @@ package com.lumora.tv.ui.guide
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.recording.RecordingRepository
+import com.lumora.tv.data.remote.XtreamClient
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import com.lumora.tv.data.db.PlaylistEntity
 import com.lumora.tv.data.epg.Catchup
 import com.lumora.tv.ui.vod.VodRequest
@@ -36,7 +40,26 @@ class GuideViewModel(
     requestedContext: GroupSelection,
     private val startChannelId: Long?,
     private val startTime: Long? = null,
+    private val recordings: RecordingRepository? = null,
 ) : ViewModel() {
+
+    /** "channelKey|programStart" of programmes set to record, to mark them in the grid. */
+    val recordingMarks: StateFlow<Set<String>> = (recordings?.active ?: flowOf(emptyList()))
+        .map { list -> list.mapNotNull { r -> r.programStart?.let { recordingMark(r.channelKey, it) } }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Hold OK: record the focused programme (or cancel its recording). Reports what happened. */
+    fun toggleRecording(onResult: (String) -> Unit) {
+        val channel = focusedChannel() ?: return
+        val program = focusedProgram()
+        val repo = recordings ?: return
+        if (program == null) {
+            onResult("No programme information here to record")
+            return
+        }
+        val url = XtreamClient.playableUrl(channel.channelKey, channel.streamUrl, settings.current.value.xtreamFormat.extension)
+        viewModelScope.launch { onResult(repo.toggleProgram(channel, url, program)) }
+    }
 
     /** The group shown. Falls back to All channels when the requested one is empty. */
     var context: GroupSelection = requestedContext
@@ -155,6 +178,8 @@ class GuideViewModel(
     }
 
     companion object {
+        fun recordingMark(channelKey: String, programStart: Long) = "$channelKey|$programStart"
+
         val SLOT_MS = TimeUnit.MINUTES.toMillis(30)
         val WINDOW_MS = TimeUnit.HOURS.toMillis(2)
         private val MAX_AHEAD_MS = TimeUnit.DAYS.toMillis(7)

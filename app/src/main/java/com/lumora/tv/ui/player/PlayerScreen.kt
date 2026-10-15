@@ -75,6 +75,8 @@ import androidx.media3.ui.PlayerView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -83,6 +85,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.db.RecordingStatus
+import com.lumora.tv.ui.recordings.rememberNotificationPermissionRequest
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.R
 import com.lumora.tv.data.repo.BufferProfile
@@ -112,13 +116,19 @@ fun PlayerScreen(
 ) {
     val container = appContainer()
     val vm: PlayerViewModel = viewModel {
-        PlayerViewModel(container.playlists, container.settings, container.epg, channelId, context)
+        PlayerViewModel(container.playlists, container.settings, container.epg, container.recordings, channelId, context)
     }
     val upcoming by vm.upcoming.collectAsStateWithLifecycle()
     val now by vm.now.collectAsStateWithLifecycle()
     val channel by vm.channel.collectAsStateWithLifecycle()
     val numberInput by vm.numberInput.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
+    val activeRecordings by vm.activeRecordings.collectAsStateWithLifecycle()
+    val askNotifications = rememberNotificationPermissionRequest()
+    fun toggleRecording() {
+        askNotifications()
+        vm.toggleRecording()
+    }
     val androidContext = LocalContext.current
 
     // Dead streams are common in IPTV lists: give up quickly so the error shows, instead of spinning.
@@ -249,8 +259,16 @@ fun PlayerScreen(
         behind = live.behindMs()
     }
 
+    // Holding OK records; the OK release that ends the hold must not also toggle the overlay.
+    var okHeld by remember { mutableStateOf(false) }
+
     fun handleKey(event: KeyEvent): Boolean {
         val code = event.key.nativeKeyCode
+        if (event.type == KeyEventType.KeyDown && code in OK_KEYS && event.nativeKeyEvent.repeatCount == 1) {
+            okHeld = true
+            toggleRecording()
+            return true
+        }
         if (event.type == KeyEventType.KeyDown) {
             digitFor(code)?.let {
                 vm.typeDigit(it)
@@ -272,6 +290,7 @@ fun PlayerScreen(
                 AndroidKeyEvent.KEYCODE_SPACE -> live.togglePause()
                 AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> if (!paused) live.togglePause()
                 AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> if (paused) live.togglePause()
+                AndroidKeyEvent.KEYCODE_MEDIA_RECORD -> toggleRecording()
                 AndroidKeyEvent.KEYCODE_INFO -> if (overlayVisible) overlayVisible = false else showOverlay()
                 // Many Android TV builds reserve the Guide key for the system TV app, so Menu opens it too.
                 AndroidKeyEvent.KEYCODE_GUIDE,
@@ -285,7 +304,7 @@ fun PlayerScreen(
             return true
         }
         if (event.type == KeyEventType.KeyUp && code in OK_KEYS) {
-            onOk()
+            if (okHeld) okHeld = false else onOk()
             return true
         }
         return false
@@ -410,6 +429,9 @@ fun PlayerScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("TV guide")
                     }
+                    IconButton(onClick = ::toggleRecording) {
+                        Icon(Icons.Filled.FiberManualRecord, contentDescription = "Record", tint = Color(0xFFE5484D))
+                    }
                     if (canRewind) {
                         Spacer(Modifier.width(24.dp))
                         IconButton(onClick = ::rewind) { Icon(Icons.Filled.Replay10, contentDescription = "Back 10 seconds") }
@@ -446,6 +468,18 @@ fun PlayerScreen(
                         .background(Color(0xCC0D0F16), RoundedCornerShape(12.dp))
                         .padding(horizontal = 28.dp, vertical = 12.dp),
                 )
+            }
+            if (c != null && activeRecordings.any { it.channelKey == c.channelKey && it.status == RecordingStatus.RECORDING }) {
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xCC0D0F16), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(12.dp).background(Color(0xFFE5484D), CircleShape))
+                    Spacer(Modifier.width(8.dp))
+                    Text("REC", style = MaterialTheme.typography.titleMedium)
+                }
             }
             // While paused or rewound, always show how far behind live this is.
             if (paused || behind >= 1_000) {
@@ -591,7 +625,7 @@ private fun InfoOverlay(
         Spacer(Modifier.height(20.dp))
         Text(
             if (LocalIsTv.current) {
-                "▲▼ channel   ·   ◀▶ rewind / forward   ·   0–9 number   ·   0 previous   ·   Menu: TV guide"
+                "▲▼ channel   ·   ◀▶ rewind   ·   0–9 number   ·   hold OK: record   ·   Menu: TV guide"
             } else {
                 "Swipe up or down to change channel   ·   tap to hide"
             },

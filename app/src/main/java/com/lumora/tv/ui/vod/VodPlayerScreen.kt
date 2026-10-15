@@ -62,6 +62,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -135,7 +136,8 @@ fun VodPlayerScreen(request: VodRequest, onBack: () -> Unit) {
     val player = remember {
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(container.http)))
+            // Network streams through OkHttp; recordings are local files.
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, OkHttpDataSource.Factory(container.http))))
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build()

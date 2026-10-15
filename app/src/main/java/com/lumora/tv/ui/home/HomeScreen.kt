@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Tv
@@ -94,6 +95,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: (playlistId: Long) -> Unit,
     onOpenCatalog: (playlistId: Long, kind: VodKind) -> Unit,
+    onOpenRecordings: () -> Unit,
 ) {
     val container = appContainer()
     val vm: HomeViewModel = viewModel { HomeViewModel(container.playlists, container.settings, container.epg, container.parental) }
@@ -123,6 +125,10 @@ fun HomeScreen(
             onOpenCatalog = { kind ->
                 vm.returningFromPlayer = true
                 onOpenCatalog(s.playlist.id, kind)
+            },
+            onOpenRecordings = {
+                vm.returningFromPlayer = true
+                onOpenRecordings()
             },
         )
     }
@@ -164,6 +170,7 @@ private fun ChannelBrowser(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCatalog: (VodKind) -> Unit,
+    onOpenRecordings: () -> Unit,
 ) {
     val selection by vm.selection.collectAsStateWithLifecycle()
     val airing by vm.airing.collectAsStateWithLifecycle()
@@ -285,6 +292,9 @@ private fun ChannelBrowser(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    IconButton(onClick = onOpenRecordings) {
+                        Icon(Icons.Filled.FiberManualRecord, contentDescription = "Recordings")
                     }
                     IconButton(onClick = onOpenSearch) {
                         Icon(Icons.Filled.Search, contentDescription = "Search")

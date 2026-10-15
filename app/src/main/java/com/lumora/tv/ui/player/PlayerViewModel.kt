@@ -3,6 +3,8 @@ package com.lumora.tv.ui.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.db.RecordingEntity
+import com.lumora.tv.data.recording.RecordingRepository
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.epg.epgKey
@@ -36,9 +38,14 @@ class PlayerViewModel(
     private val repo: PlaylistRepository,
     private val settings: SettingsRepository,
     epg: EpgRepository,
+    private val recordings: RecordingRepository,
     channelId: Long,
     val context: GroupSelection,
 ) : ViewModel() {
+
+    /** Recordings running or scheduled, to show REC on the tuned channel. */
+    val activeRecordings: StateFlow<List<RecordingEntity>> = recordings.active
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _channel = MutableStateFlow<ChannelEntity?>(null)
     val channel: StateFlow<ChannelEntity?> = _channel.asStateFlow()
@@ -75,6 +82,14 @@ class PlayerViewModel(
                 tune(start, rememberPrevious = false)
             }
         }
+    }
+
+    /** Starts recording the tuned channel until the current programme ends, or stops it. */
+    fun toggleRecording() {
+        val c = _channel.value ?: return
+        val now = System.currentTimeMillis()
+        val current = upcoming.value.firstOrNull { it.start <= now && now < it.stop }
+        viewModelScope.launch { showNotice(recordings.toggleLive(c, playableUrl(c), current)) }
     }
 
     /** The URL to play: Xtream streams follow the stream format chosen in Settings. */

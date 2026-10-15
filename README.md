@@ -4,6 +4,18 @@ An IPTV player for Android TV, in the spirit of TiviMate. It plays M3U playlists
 
 Design and milestones: [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Features
+
+- Playlists from an M3U URL, a local M3U file, or an Xtream Codes login. Channels by group, favorites, channel numbers.
+- Full-screen live TV: channel up/down, number entry, previous channel, info overlay with now/next.
+- Live rewind up to 30 seconds, pause and catch up again.
+- XMLTV TV guide grid, and search across channels, programmes, movies and series.
+- Catch-up: watch ended programmes from the provider's archive (Xtream and M3U `catchup`).
+- Recording: record what's on, or schedule programmes from the guide; recordings play back in the app.
+- Movies and series for Xtream accounts, with resume and Continue watching.
+- Parental PIN to hide chosen groups.
+- Made for the TV remote, and also works with touch on phones and tablets.
+
 ## Build
 
 Needs JDK 17 and the Android SDK (set `sdk.dir` in `local.properties`, or open the project in Android Studio).

@@ -155,6 +155,31 @@ data class ProgressEntity(
     val fraction: Float get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
 }
 
+enum class RecordingStatus { SCHEDULED, RECORDING, DONE, FAILED }
+
+/** A recording: scheduled, running or saved. Kept even if its playlist is deleted. */
+@Entity(tableName = "recordings", indices = [Index("status")])
+data class RecordingEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val playlistId: Long,
+    val channelKey: String,
+    val channelName: String,
+    val title: String,
+    /** The stream to record. */
+    val url: String,
+    /** The guide programme this records, if any (to mark it in the guide). */
+    val programStart: Long?,
+    /** Recording window, padding included. */
+    val startAt: Long,
+    val endAt: Long,
+    val status: RecordingStatus,
+    val createdAt: Long,
+    val startedAt: Long? = null,
+    val filePath: String? = null,
+    @ColumnInfo(defaultValue = "0") val bytes: Long = 0,
+    val error: String? = null,
+)
+
 data class ChannelItem(
     @Embedded val channel: ChannelEntity,
     val isFavorite: Boolean,

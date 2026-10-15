@@ -214,3 +214,37 @@ interface ProgressDao {
     @Query("SELECT * FROM playback_progress WHERE playlistId = :playlistId AND seriesId = :seriesId")
     fun observeSeries(playlistId: Long, seriesId: String): Flow<List<ProgressEntity>>
 }
+
+@Dao
+interface RecordingDao {
+    @Insert
+    suspend fun insert(recording: RecordingEntity): Long
+
+    @Update
+    suspend fun update(recording: RecordingEntity)
+
+    @Query("UPDATE recordings SET bytes = :bytes WHERE id = :id")
+    suspend fun updateBytes(id: Long, bytes: Long)
+
+    @Query("DELETE FROM recordings WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT * FROM recordings WHERE id = :id")
+    suspend fun get(id: Long): RecordingEntity?
+
+    @Query("SELECT * FROM recordings WHERE status = :status")
+    suspend fun withStatus(status: RecordingStatus): List<RecordingEntity>
+
+    /** Running first, then upcoming (soonest first), then saved and failed (newest first). */
+    @Query(
+        "SELECT * FROM recordings ORDER BY CASE status WHEN 'RECORDING' THEN 0 WHEN 'SCHEDULED' THEN 1 ELSE 2 END, " +
+            "CASE WHEN status = 'SCHEDULED' THEN startAt ELSE -startAt END",
+    )
+    fun observeAll(): Flow<List<RecordingEntity>>
+
+    @Query("SELECT * FROM recordings WHERE status IN ('SCHEDULED', 'RECORDING')")
+    fun observeActive(): Flow<List<RecordingEntity>>
+
+    @Query("SELECT * FROM recordings WHERE status IN ('SCHEDULED', 'RECORDING')")
+    suspend fun observeActiveOnce(): List<RecordingEntity>
+}

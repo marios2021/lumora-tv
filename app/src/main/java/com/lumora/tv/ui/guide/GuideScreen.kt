@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -55,7 +57,11 @@ import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.epgKey
+import android.widget.Toast
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
 import com.lumora.tv.data.epg.Catchup
+import com.lumora.tv.ui.recordings.rememberNotificationPermissionRequest
 import com.lumora.tv.data.repo.GroupSelection
 import com.lumora.tv.ui.vod.VodRequest
 import com.lumora.tv.ui.common.ChannelLogo
@@ -87,13 +93,22 @@ fun GuideScreen(
 ) {
     val container = appContainer()
     val vm: GuideViewModel = viewModel {
-        GuideViewModel(container.playlists, container.settings, container.epg, playlistId, context, startChannelId, startTime)
+        GuideViewModel(container.playlists, container.settings, container.epg, playlistId, context, startChannelId, startTime, container.recordings)
     }
     val channels by vm.channels.collectAsStateWithLifecycle()
     val cursor by vm.cursor.collectAsStateWithLifecycle()
     val windowStart by vm.windowStart.collectAsStateWithLifecycle()
     val programs by vm.programs.collectAsStateWithLifecycle()
     val now by vm.now.collectAsStateWithLifecycle()
+    val recordingMarks by vm.recordingMarks.collectAsStateWithLifecycle()
+    val androidContext = LocalContext.current
+    val askNotifications = rememberNotificationPermissionRequest()
+    fun toggleRecording() {
+        askNotifications()
+        vm.toggleRecording { Toast.makeText(androidContext, it, Toast.LENGTH_SHORT).show() }
+    }
+    // Holding OK records; the release that ends the hold must not also start watching.
+    var okHeld by remember { mutableStateOf(false) }
     val timeFormat = rememberTimeFormat()
     val listState = rememberLazyListState()
 
@@ -129,6 +144,17 @@ fun GuideScreen(
 
     fun handleKey(event: KeyEvent): Boolean {
         val code = event.key.nativeKeyCode
+        val isOk = code == AndroidKeyEvent.KEYCODE_DPAD_CENTER || code == AndroidKeyEvent.KEYCODE_ENTER ||
+            code == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+        if (event.type == KeyEventType.KeyDown && isOk && event.nativeKeyEvent.repeatCount == 1) {
+            okHeld = true
+            toggleRecording()
+            return true
+        }
+        if (event.type == KeyEventType.KeyDown && code == AndroidKeyEvent.KEYCODE_MEDIA_RECORD) {
+            toggleRecording()
+            return true
+        }
         if (event.type == KeyEventType.KeyDown) {
             when (code) {
                 AndroidKeyEvent.KEYCODE_DPAD_UP -> vm.moveRows(-1)
@@ -150,7 +176,7 @@ fun GuideScreen(
                 AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
             )
         ) {
-            watchFocused()
+            if (okHeld) okHeld = false else watchFocused()
             return true
         }
         return false
@@ -226,6 +252,11 @@ fun GuideScreen(
                                         vm.setCursor(index, time)
                                     }
                                 },
+                                onLongPressTime = { time ->
+                                    vm.setCursor(index, time)
+                                    toggleRecording()
+                                },
+                                recordingMarks = recordingMarks,
                             )
                         }
                     }
@@ -303,9 +334,9 @@ private fun GuideDetails(
             )
             Text(
                 if (LocalIsTv.current) {
-                    "OK watch  ·  ◀ ▶ time  ·  ▲ ▼ channels  ·  0 now"
+                    "OK watch  ·  hold OK record  ·  ◀ ▶ time  ·  ▲ ▼ channels  ·  0 now"
                 } else {
-                    "Tap a programme, tap again to watch  ·  drag to scroll"
+                    "Tap a programme, tap again to watch  ·  long-press to record  ·  drag to scroll"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
@@ -347,6 +378,8 @@ private fun GuideRow(
     focusedTime: Long?,
     onTapChannel: () -> Unit,
     onTapTime: (Long) -> Unit,
+    onLongPressTime: (Long) -> Unit = {},
+    recordingMarks: Set<String> = emptySet(),
 ) {
     val colors = MaterialTheme.colorScheme
     val windowEnd = windowStart + WINDOW_MS
@@ -389,9 +422,10 @@ private fun GuideRow(
                 .fillMaxHeight()
                 .clipToBounds()
                 .pointerInput(windowStart, dpPerMs) {
-                    detectTapGestures { offset ->
-                        onTapTime(windowStart + (offset.x.toDp().value / dpPerMs).toLong())
-                    }
+                    detectTapGestures(
+                        onTap = { offset -> onTapTime(windowStart + (offset.x.toDp().value / dpPerMs).toLong()) },
+                        onLongPress = { offset -> onLongPressTime(windowStart + (offset.x.toDp().value / dpPerMs).toLong()) },
+                    )
                 },
         ) {
             val visible = programs.filter { it.stop > windowStart && it.start < windowEnd }
@@ -409,6 +443,7 @@ private fun GuideRow(
                     focused = focused,
                     now = now,
                     archived = hasArchive && Catchup.isAvailable(channel, p.start, p.stop, now),
+                    recording = GuideViewModel.recordingMark(channel.channelKey, p.start) in recordingMarks,
                 )
             }
             if (visible.isEmpty()) {
@@ -433,6 +468,8 @@ private fun ProgramCell(
     now: Long,
     /** Past programme that can be watched from the archive. */
     archived: Boolean = false,
+    /** Set to record, or recording now. */
+    recording: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val start = maxOf(from, windowStart)
@@ -465,6 +502,14 @@ private fun ProgramCell(
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (recording) {
+                Box(
+                    Modifier
+                        .padding(start = 10.dp)
+                        .size(10.dp)
+                        .background(Color(0xFFE5484D), CircleShape),
+                )
+            }
             if (archived) {
                 Icon(
                     Icons.Filled.History,

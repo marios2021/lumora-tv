@@ -22,6 +22,7 @@ import com.lumora.tv.ui.playlists.AddPlaylistScreen
 import com.lumora.tv.ui.playlists.PlaylistsScreen
 import androidx.compose.runtime.remember
 import com.lumora.tv.data.db.VodKind
+import com.lumora.tv.ui.recordings.RecordingsScreen
 import com.lumora.tv.ui.search.SearchScreen
 import com.lumora.tv.ui.vod.CatalogScreen
 import com.lumora.tv.ui.vod.MovieDetailsScreen
@@ -52,6 +53,7 @@ private object Routes {
     fun series(playlistId: Long, itemId: String) = "series/$playlistId/" + Uri.encode(itemId)
     const val PLAY = "play?req={req}"
     fun play(request: VodRequest) = "play?req=" + Uri.encode(request.encode())
+    const val RECORDINGS = "recordings"
     const val SEARCH = "search/{playlistId}"
     fun search(playlistId: Long) = "search/$playlistId"
 }
@@ -82,7 +84,11 @@ fun LumoraNavHost() {
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenSearch = { nav.navigate(Routes.search(it)) },
                 onOpenCatalog = { playlistId, kind -> nav.navigate(Routes.catalog(playlistId, kind)) },
+                onOpenRecordings = { nav.navigate(Routes.RECORDINGS) },
             )
+        }
+        composable(Routes.RECORDINGS) {
+            RecordingsScreen(onPlay = { nav.navigate(Routes.play(it)) })
         }
         composable(
             Routes.CATALOG,
