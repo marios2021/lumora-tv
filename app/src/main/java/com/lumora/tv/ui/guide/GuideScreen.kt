@@ -26,6 +26,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
+import androidx.tv.material3.Icon
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,7 +55,9 @@ import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.epgKey
+import com.lumora.tv.data.epg.Catchup
 import com.lumora.tv.data.repo.GroupSelection
+import com.lumora.tv.ui.vod.VodRequest
 import com.lumora.tv.ui.common.ChannelLogo
 import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.appContainer
@@ -76,6 +82,7 @@ fun GuideScreen(
     context: GroupSelection,
     startChannelId: Long?,
     onPlay: (channelId: Long, context: GroupSelection) -> Unit,
+    onPlayArchive: (VodRequest) -> Unit,
     startTime: Long? = null,
 ) {
     val container = appContainer()
@@ -114,6 +121,12 @@ fun GuideScreen(
         }
     }
 
+    // An ended programme on a channel with catch-up plays from the archive; anything else tunes the channel.
+    fun watchFocused() {
+        val archive = vm.archiveRequest()
+        if (archive != null) onPlayArchive(archive) else vm.focusedChannel()?.let { onPlay(it.id, vm.context) }
+    }
+
     fun handleKey(event: KeyEvent): Boolean {
         val code = event.key.nativeKeyCode
         if (event.type == KeyEventType.KeyDown) {
@@ -137,7 +150,7 @@ fun GuideScreen(
                 AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
             )
         ) {
-            vm.focusedChannel()?.let { onPlay(it.id, vm.context) }
+            watchFocused()
             return true
         }
         return false
@@ -157,7 +170,9 @@ fun GuideScreen(
         val focusedProgram = focusedChannel?.let { ch ->
             programs[ch.epgKey]?.firstOrNull { it.start <= cursor.time && cursor.time < it.stop }
         }
-        GuideDetails(focusedChannel, focusedProgram, now, timeFormat, groupLabel(vm.context))
+        val archived = focusedChannel != null && focusedProgram != null &&
+            Catchup.isAvailable(focusedChannel, focusedProgram.start, focusedProgram.stop, now)
+        GuideDetails(focusedChannel, focusedProgram, now, timeFormat, groupLabel(vm.context), archived)
 
         when {
             list == null -> Unit
@@ -206,7 +221,7 @@ fun GuideScreen(
                                     val tapped = vm.programAt(index, time)
                                     val selected = vm.focusedProgram()
                                     if (cursor.row == index && tapped != null && tapped.id == selected?.id) {
-                                        onPlay(channel.id, vm.context)
+                                        watchFocused()
                                     } else {
                                         vm.setCursor(index, time)
                                     }
@@ -227,6 +242,7 @@ private fun GuideDetails(
     now: Long,
     timeFormat: DateFormat,
     group: String,
+    archived: Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -254,7 +270,8 @@ private fun GuideDetails(
             )
             if (program != null) {
                 Text(
-                    timeFormat.span(program) + "   ·   " + describeTiming(program, now),
+                    timeFormat.span(program) + "   ·   " + describeTiming(program, now) +
+                        if (archived) "   ·   catch-up: ${if (LocalIsTv.current) "OK" else "tap"} to watch" else "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant,
                 )
@@ -378,6 +395,7 @@ private fun GuideRow(
                 },
         ) {
             val visible = programs.filter { it.stop > windowStart && it.start < windowEnd }
+            val hasArchive = Catchup.hasArchive(channel)
             var focusCovered = false
             for (p in visible) {
                 val focused = focusedTime != null && focusedTime >= p.start && focusedTime < p.stop
@@ -390,6 +408,7 @@ private fun GuideRow(
                     title = p.title,
                     focused = focused,
                     now = now,
+                    archived = hasArchive && Catchup.isAvailable(channel, p.start, p.stop, now),
                 )
             }
             if (visible.isEmpty()) {
@@ -412,6 +431,8 @@ private fun ProgramCell(
     focused: Boolean,
     /** Pass 0 for placeholder cells that never count as airing. */
     now: Long,
+    /** Past programme that can be watched from the archive. */
+    archived: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val start = maxOf(from, windowStart)
@@ -443,14 +464,26 @@ private fun ProgramCell(
                     .background(colors.primary.copy(alpha = if (focused) 0.25f else 0.18f)),
             )
         }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (focused) colors.inverseOnSurface else colors.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (archived) {
+                Icon(
+                    Icons.Filled.History,
+                    contentDescription = "Catch-up",
+                    tint = if (focused) colors.inverseOnSurface else colors.primary,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(16.dp),
+                )
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (focused) colors.inverseOnSurface else colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
+        }
     }
 }
 

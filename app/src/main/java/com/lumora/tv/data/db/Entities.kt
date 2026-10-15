@@ -22,6 +22,8 @@ data class PlaylistEntity(
     val updatedAt: Long = 0,
     val channelCount: Int = 0,
     @ColumnInfo(defaultValue = "0") val epgUpdatedAt: Long = 0,
+    /** Xtream: the panel's time zone (e.g. Europe/London), used for catch-up URLs. */
+    val serverTimezone: String? = null,
 )
 
 @Entity(
@@ -47,6 +49,12 @@ data class ChannelEntity(
     val streamUrl: String,
     val tvgId: String?,
     val sortOrder: Int,
+    /** How many days back the provider archives this channel (0 = no catch-up). */
+    @ColumnInfo(defaultValue = "0") val catchupDays: Int = 0,
+    /** xc, default, append, shift or flussonic; see Catchup. */
+    val catchupType: String? = null,
+    /** M3U catch-up URL template. */
+    val catchupSource: String? = null,
 ) {
     val number: Int get() = sortOrder + 1
 }

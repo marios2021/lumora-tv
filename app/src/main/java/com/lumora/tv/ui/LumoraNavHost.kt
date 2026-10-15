@@ -172,6 +172,8 @@ fun LumoraNavHost() {
                 onPlay = { channelId, context ->
                     nav.navigate(Routes.player(channelId, context)) { popUpTo(Routes.HOME) }
                 },
+                // Catch-up returns to the guide afterwards.
+                onPlayArchive = { nav.navigate(Routes.play(it)) },
             )
         }
         composable(Routes.PLAYLISTS) {

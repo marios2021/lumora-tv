@@ -10,12 +10,17 @@ data class ParsedChannel(
     val logo: String?,
     val url: String,
     val tvgId: String?,
+    val catchupDays: Int = 0,
+    val catchupType: String? = null,
+    val catchupSource: String? = null,
 )
 
 data class LoadedPlaylist(
     /** EPG URL(s) advertised by the source; may be a comma-separated list. */
     val epgUrl: String?,
     val channels: List<ParsedChannel>,
+    /** Xtream: the panel's time zone. */
+    val serverTimezone: String? = null,
 )
 
 const val DEFAULT_GROUP = "Uncategorized"
@@ -90,6 +95,11 @@ object M3uParser {
             logo = attrs["tvg-logo"]?.trim()?.ifEmpty { null },
             url = url,
             tvgId = attrs["tvg-id"]?.trim()?.ifEmpty { null },
+            // catchup-days is standard; "timeshift" and "tvg-rec" are older names for it.
+            catchupDays = (attrs["catchup-days"] ?: attrs["timeshift"] ?: attrs["tvg-rec"])?.trim()?.toIntOrNull()?.coerceAtLeast(0)
+                ?: if (attrs["catchup"] != null || attrs["catchup-source"] != null) 1 else 0,
+            catchupType = attrs["catchup"]?.trim()?.ifEmpty { null },
+            catchupSource = attrs["catchup-source"]?.trim()?.ifEmpty { null },
         )
     }
 

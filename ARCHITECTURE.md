@@ -40,7 +40,7 @@ Data flows one way: **Repository → Flow → ViewModel StateFlow → Compose**.
 ## Data model
 
 - **playlists**: id, name, type (`M3U_URL`, `M3U_FILE`, `XTREAM`), url, username, password, epgUrl, updatedAt
-- **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder
+- **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder, and catch-up info (days, type, source template)
 - **favorites**: playlistId + channelKey. Kept in a separate table so favorites survive a playlist refresh.
 - **locked_groups**: playlistId + groupTitle, for the parental lock (milestone 7). Also kept by name, so locks survive a refresh.
 - **vod**: movies and series of Xtream playlists (kind, provider id, name, category, poster, rating, year, file type). Details, seasons and episodes are fetched when a title is opened.
@@ -83,7 +83,7 @@ Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   - Back closes the overlay first, then leaves the player. The list re-focuses the last channel watched.
   - Menu (or Guide, where the system doesn't reserve it) opens the TV guide on the current channel.
   - ◀ / Rewind goes back 10 s (up to 30 s), ▶ / Fast-forward goes forward again and rejoins live; Play/Pause pauses live TV. A badge shows how far behind live you are.
-- In the TV guide: ▲▼ channels, ◀▶ previous/next programme, CH+/CH- page, 0 jumps to now, OK watches the selected channel. It shows the group you opened it from, or All channels if that group is empty.
+- In the TV guide: ▲▼ channels, ◀▶ previous/next programme, CH+/CH- page, 0 jumps to now, OK watches the selected channel, or plays an ended programme from the archive on channels with catch-up. It shows the group you opened it from, or All channels if that group is empty.
 
 ## Milestones
 
@@ -134,5 +134,11 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - The **VOD player** is seekable: OK play/pause, ◀ ▶ 10 s (held: 30 s), Rewind / Fast-forward 30 s; on touch, tap for controls and tap the bar to seek. It saves the position every 10 s and on exit; past 95 % counts as watched.
 - Search also finds movies and series.
 - URLs: `{server}/movie/{user}/{pass}/{id}.{ext}` and `{server}/series/{user}/{pass}/{episodeId}.{ext}`.
+
+### Catch-up (milestone 9)
+
+- Xtream streams with `tv_archive` keep their archive length (`tv_archive_duration` days); the panel's time zone comes from `server_info.timezone` at login. M3U channels read `catchup`, `catchup-days` (or `timeshift` / `tvg-rec`) and `catchup-source`.
+- `Catchup` builds the archive URL: **xc** (`/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{id}.ts`, time in the panel's zone), **default** (template), **append**, **shift** (`utc` / `lutc`) and **flussonic**. Templates understand `{utc}` `{start}` `{end}` `{lutc}` `{now}` `{duration}` `{duration:60}` `{offset}` `{Y}{m}{d}{H}{M}{S}`, with or without `$`.
+- The guide keeps programmes as far back as the longest archive (up to 7 days) and lets you scroll back that far. Ended programmes on archived channels show a history icon; OK plays them in the seekable player, and Back returns to the guide.
 
 Later: multi-view, picture-in-picture.

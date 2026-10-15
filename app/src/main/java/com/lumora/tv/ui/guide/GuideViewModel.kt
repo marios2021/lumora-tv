@@ -3,6 +3,9 @@ package com.lumora.tv.ui.guide
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.db.PlaylistEntity
+import com.lumora.tv.data.epg.Catchup
+import com.lumora.tv.ui.vod.VodRequest
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.epg.epgKey
@@ -39,6 +42,11 @@ class GuideViewModel(
     var context: GroupSelection = requestedContext
         private set
 
+    private var playlist: PlaylistEntity? = null
+
+    /** How far back the cursor may go: 2 hours, or as far as the channels' archives reach. */
+    private var maxBehindMs = MAX_BEHIND_MS
+
     private val _channels = MutableStateFlow<List<ChannelEntity>?>(null)
     val channels: StateFlow<List<ChannelEntity>?> = _channels.asStateFlow()
 
@@ -65,6 +73,9 @@ class GuideViewModel(
                 context = GroupSelection.All
                 list = repo.channelsFor(playlistId, context)
             }
+            playlist = repo.get(playlistId)
+            val archiveDays = list.maxOfOrNull { if (Catchup.hasArchive(it)) it.catchupDays else 0 } ?: 0
+            maxBehindMs = maxOf(MAX_BEHIND_MS, TimeUnit.DAYS.toMillis(archiveDays.coerceAtMost(Catchup.MAX_DAYS).toLong()))
             _channels.value = list
             val focusId = startChannelId ?: repo.channel(settings.lastChannel.first())?.id
             val row = list.indexOfFirst { it.id == focusId }.coerceAtLeast(0)
@@ -105,9 +116,28 @@ class GuideViewModel(
         val edge = (programAt(c.row, c.time)?.start ?: floorSlot(c.time)) - 1
         val previous = programAt(c.row, edge)
         val target = maxOf(previous?.start ?: floorSlot(edge), floorSlot(edge) - SLOT_MS)
-        if (target < floorSlot(System.currentTimeMillis() - MAX_BEHIND_MS)) return
+        if (target < floorSlot(System.currentTimeMillis() - maxBehindMs)) return
         _cursor.value = c.copy(time = target)
         if (target < _windowStart.value) _windowStart.value = floorSlot(target)
+    }
+
+    /** The focused programme from the channel's archive, if it has ended and is still archived. */
+    fun archiveRequest(): VodRequest? {
+        val channel = focusedChannel() ?: return null
+        val program = focusedProgram() ?: return null
+        val playlist = playlist ?: return null
+        val now = System.currentTimeMillis()
+        if (!Catchup.isAvailable(channel, program.start, program.stop, now)) return null
+        val url = Catchup.url(playlist, channel, program.start, program.stop, now) ?: return null
+        return VodRequest(
+            url = url,
+            title = program.title,
+            subtitle = "Catch-up  ·  ${channel.name}",
+            playlistId = playlist.id,
+            contentKey = null,
+            seriesId = null,
+            startMs = 0,
+        )
     }
 
     /** Touch: select the programme airing at [time] on [row]. */

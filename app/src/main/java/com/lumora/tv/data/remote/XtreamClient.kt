@@ -32,6 +32,7 @@ class XtreamClient(private val http: OkHttpClient) {
         if (userInfo == null || userInfo.optInt("auth", 0) != 1) {
             throw IOException("Login failed. Check the server, username and password.")
         }
+        val timezone = account.optJSONObject("server_info")?.optString("timezone")?.trim()?.ifEmpty { null }
         val status = userInfo.optString("status")
         if (status.isNotEmpty() && !status.equals("Active", ignoreCase = true)) {
             throw IOException("Account status is \"$status\".")
@@ -59,6 +60,8 @@ class XtreamClient(private val http: OkHttpClient) {
                     logo = s.icon?.ifBlank { null },
                     url = streamUrl(base, username, password, s.streamId, streamExtension),
                     tvgId = s.epgId?.ifBlank { null },
+                    catchupDays = if (s.archive) s.archiveDays.coerceAtLeast(1) else 0,
+                    catchupType = if (s.archive) "xc" else null,
                 )
             }
 
@@ -69,7 +72,7 @@ class XtreamClient(private val http: OkHttpClient) {
             .build()
             .toString()
 
-        LoadedPlaylist(epg, channels)
+        LoadedPlaylist(epg, channels, timezone)
     }
 
     /** The movie catalogue (get_vod_categories + get_vod_streams), in category order. */
@@ -118,6 +121,8 @@ class XtreamClient(private val http: OkHttpClient) {
         val icon: String?,
         val epgId: String?,
         val categoryId: String?,
+        val archive: Boolean,
+        val archiveDays: Int,
     )
 
     /** Streams the (often huge) JSON array instead of loading it into a single string. */
@@ -139,6 +144,8 @@ class XtreamClient(private val http: OkHttpClient) {
                 var icon: String? = null
                 var epgId: String? = null
                 var categoryId: String? = null
+                var archive = false
+                var archiveDays = 0
                 r.beginObject()
                 while (r.hasNext()) {
                     when (r.nextName()) {
@@ -147,11 +154,13 @@ class XtreamClient(private val http: OkHttpClient) {
                         "stream_icon" -> icon = r.stringOrNull()
                         "epg_channel_id" -> epgId = r.stringOrNull()
                         "category_id" -> categoryId = r.stringOrNull()
+                        "tv_archive" -> archive = r.stringOrNull().let { it == "1" || it == "true" }
+                        "tv_archive_duration" -> archiveDays = r.stringOrNull()?.toIntOrNull() ?: 0
                         else -> r.skipValue()
                     }
                 }
                 r.endObject()
-                if (streamId != null) out += Stream(streamId, name.trim(), icon, epgId, categoryId)
+                if (streamId != null) out += Stream(streamId, name.trim(), icon, epgId, categoryId, archive, archiveDays)
             }
             r.endArray()
         }

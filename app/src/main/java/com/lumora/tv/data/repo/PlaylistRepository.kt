@@ -93,6 +93,7 @@ class PlaylistRepository(
             val id = playlistDao.insert(
                 draft.copy(
                     epgUrl = draft.epgUrl ?: loaded.epgUrl,
+                    serverTimezone = loaded.serverTimezone,
                     updatedAt = System.currentTimeMillis(),
                     channelCount = loaded.channels.size,
                 ),
@@ -112,6 +113,7 @@ class PlaylistRepository(
             playlistDao.update(
                 playlist.copy(
                     epgUrl = playlist.epgUrl ?: loaded.epgUrl,
+                    serverTimezone = loaded.serverTimezone ?: playlist.serverTimezone,
                     updatedAt = System.currentTimeMillis(),
                     channelCount = loaded.channels.size,
                 ),
@@ -155,6 +157,7 @@ class PlaylistRepository(
                     username = edited.username,
                     password = edited.password,
                     epgUrl = edited.epgUrl ?: loaded.epgUrl,
+                    serverTimezone = loaded.serverTimezone,
                     updatedAt = System.currentTimeMillis(),
                     channelCount = loaded.channels.size,
                 ),
@@ -187,6 +190,9 @@ class PlaylistRepository(
                     streamUrl = c.url,
                     tvgId = c.tvgId,
                     sortOrder = index,
+                    catchupDays = c.catchupDays,
+                    catchupType = c.catchupType,
+                    catchupSource = c.catchupSource,
                 )
             }
             .chunked(1000)

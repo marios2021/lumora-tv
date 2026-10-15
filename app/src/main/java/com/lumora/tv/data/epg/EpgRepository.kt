@@ -90,7 +90,9 @@ class EpgRepository(
         try {
             val matcher = EpgMatcher(channelDao.epgInfo(playlistId))
             val now = System.currentTimeMillis()
-            val keepFrom = now - KEEP_PAST_MS
+            // Catch-up channels need their past programmes, as far back as the archive goes.
+            val archiveDays = channelDao.maxCatchupDays(playlistId).coerceAtMost(Catchup.MAX_DAYS)
+            val keepFrom = now - maxOf(KEEP_PAST_MS, TimeUnit.DAYS.toMillis(archiveDays.toLong()))
             val keepTo = now + KEEP_FUTURE_MS
             val programs = ArrayList<ProgramEntity>()
             // Several EPG URLs (or one guide listing a channel twice) can repeat the same slot.

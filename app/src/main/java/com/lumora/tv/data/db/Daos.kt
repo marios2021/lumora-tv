@@ -50,6 +50,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND sortOrder = :sortOrder LIMIT 1")
     suspend fun getBySortOrder(playlistId: Long, sortOrder: Int): ChannelEntity?
 
+    @Query("SELECT COALESCE(MAX(catchupDays), 0) FROM channels WHERE playlistId = :playlistId")
+    suspend fun maxCatchupDays(playlistId: Long): Int
+
     @Query("SELECT tvgId, name FROM channels WHERE playlistId = :playlistId")
     suspend fun epgInfo(playlistId: Long): List<ChannelEpgInfo>
 
