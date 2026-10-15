@@ -3,6 +3,8 @@ package com.lumora.tv.ui.guide
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -35,7 +37,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -52,6 +56,7 @@ import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.rememberTimeFormat
 import com.lumora.tv.ui.common.requestFocusAfterLayout
 import com.lumora.tv.ui.common.span
+import com.lumora.tv.ui.common.touchClick
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.SLOT_MS
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.WINDOW_MS
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.floorSlot
@@ -160,7 +165,27 @@ fun GuideScreen(
                 val dpPerMs = gridWidth.value / WINDOW_MS
                 Column(Modifier.padding(horizontal = SidePadding)) {
                     TimelineHeader(windowStart, now, dpPerMs, timeFormat)
-                    LazyColumn(state = listState, userScrollEnabled = false) {
+                    // Touch: dragging moves the selection like the arrow buttons (one row per row
+                    // height, one programme per half-hour width), which scrolls the grid with it.
+                    val rowPx = with(LocalDensity.current) { RowHeight.toPx() }
+                    val slotPx = with(LocalDensity.current) { (SLOT_MS * dpPerMs).dp.toPx() }
+                    LazyColumn(
+                        state = listState,
+                        userScrollEnabled = false,
+                        modifier = Modifier.pointerInput(rowPx, slotPx) {
+                            var dx = 0f
+                            var dy = 0f
+                            detectDragGestures(onDragStart = { dx = 0f; dy = 0f }) { change, drag ->
+                                change.consume()
+                                dx += drag.x
+                                dy += drag.y
+                                while (dy <= -rowPx) { vm.moveRows(+1); dy += rowPx }
+                                while (dy >= rowPx) { vm.moveRows(-1); dy -= rowPx }
+                                while (dx <= -slotPx) { vm.moveRight(); dx += slotPx }
+                                while (dx >= slotPx) { vm.moveLeft(); dx -= slotPx }
+                            }
+                        },
+                    ) {
                         itemsIndexed(list, key = { _, ch -> ch.id }) { index, channel ->
                             GuideRow(
                                 channel = channel,
@@ -169,6 +194,17 @@ fun GuideScreen(
                                 now = now,
                                 dpPerMs = dpPerMs,
                                 focusedTime = if (index == cursor.row) cursor.time else null,
+                                onTapChannel = { onPlay(channel.id, vm.context) },
+                                onTapTime = { time ->
+                                    // First tap selects a programme; tapping the selected one watches it.
+                                    val tapped = vm.programAt(index, time)
+                                    val selected = vm.focusedProgram()
+                                    if (cursor.row == index && tapped != null && tapped.id == selected?.id) {
+                                        onPlay(channel.id, vm.context)
+                                    } else {
+                                        vm.setCursor(index, time)
+                                    }
+                                },
                             )
                         }
                     }
@@ -282,6 +318,8 @@ private fun GuideRow(
     now: Long,
     dpPerMs: Float,
     focusedTime: Long?,
+    onTapChannel: () -> Unit,
+    onTapTime: (Long) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val windowEnd = windowStart + WINDOW_MS
@@ -295,6 +333,7 @@ private fun GuideRow(
             modifier = Modifier
                 .width(ChannelColumn)
                 .fillMaxHeight()
+                .touchClick(onClick = onTapChannel)
                 .padding(end = 4.dp)
                 .background(
                     if (focusedTime != null) colors.primaryContainer else colors.surface,
@@ -321,7 +360,12 @@ private fun GuideRow(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .clipToBounds(),
+                .clipToBounds()
+                .pointerInput(windowStart, dpPerMs) {
+                    detectTapGestures { offset ->
+                        onTapTime(windowStart + (offset.x.toDp().value / dpPerMs).toLong())
+                    }
+                },
         ) {
             val visible = programs.filter { it.stop > windowStart && it.start < windowEnd }
             var focusCovered = false

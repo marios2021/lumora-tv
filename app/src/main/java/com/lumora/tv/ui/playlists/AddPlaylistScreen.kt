@@ -38,6 +38,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -45,6 +46,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,11 +55,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.Button
+import com.lumora.tv.ui.common.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
+import com.lumora.tv.ui.common.OutlinedButton
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.PlaylistEntity
 import com.lumora.tv.data.db.PlaylistType
@@ -127,8 +129,13 @@ fun AddPlaylistScreen(
         }
     }
 
+    // Remote: start on the first control. Touch: focus nothing, or the keyboard would pop up
+    // over the form before the user has tapped a field.
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(prefilled) { if (!editing || prefilled) firstFocus.requestFocusAfterLayout() }
+    val touchMode = LocalInputModeManager.current.inputMode == InputMode.Touch
+    LaunchedEffect(prefilled) {
+        if (!touchMode && (!editing || prefilled)) firstFocus.requestFocusAfterLayout()
+    }
     val firstFieldModifier = if (editing) Modifier.focusRequester(firstFocus) else Modifier
 
     fun submit() {
@@ -313,8 +320,10 @@ private fun FormField(
 ) {
     // TV behaviour: the D-pad moves between fields; OK starts editing and opens the keyboard.
     // While not editing the field is read-only, so focusing it doesn't pop the keyboard up.
+    // On a touch screen a tap focuses the field, and that starts editing straight away.
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val inputMode = LocalInputModeManager.current
     var editing by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
@@ -326,7 +335,15 @@ private fun FormField(
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
         modifier = modifier
             .fillMaxWidth()
-            .onFocusChanged { if (!it.isFocused) editing = false }
+            .onFocusChanged {
+                when {
+                    !it.isFocused -> editing = false
+                    inputMode.inputMode == InputMode.Touch -> {
+                        editing = true
+                        keyboard?.show()
+                    }
+                }
+            }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {

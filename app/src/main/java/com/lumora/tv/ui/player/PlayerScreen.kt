@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,7 +46,9 @@ import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -184,6 +188,17 @@ fun PlayerScreen(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocusAfterLayout() }
 
+    // OK on the remote, or a tap on a touch screen.
+    fun onOk() {
+        val c = channel
+        when {
+            numberInput.isNotEmpty() -> vm.commitNumberNow()
+            error != null && c != null -> startPlayback(c)
+            overlayVisible -> overlayVisible = false
+            else -> showOverlay()
+        }
+    }
+
     fun handleKey(event: KeyEvent): Boolean {
         val code = event.key.nativeKeyCode
         if (event.type == KeyEventType.KeyDown) {
@@ -212,13 +227,7 @@ fun PlayerScreen(
             return true
         }
         if (event.type == KeyEventType.KeyUp && code in OK_KEYS) {
-            val c = channel
-            when {
-                numberInput.isNotEmpty() -> vm.commitNumberNow()
-                error != null && c != null -> startPlayback(c)
-                overlayVisible -> overlayVisible = false
-                else -> showOverlay()
-            }
+            onOk()
             return true
         }
         return false
@@ -246,6 +255,27 @@ fun PlayerScreen(
             },
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
+        )
+
+        // Touch screens: tap acts as OK; swipe up / down changes channel like the ▲ / ▼ buttons.
+        val swipeThreshold = with(LocalDensity.current) { 60.dp.toPx() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { onOk() }) }
+                .pointerInput(Unit) {
+                    var dragged = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dragged = 0f },
+                        onDragEnd = {
+                            when {
+                                dragged < -swipeThreshold -> vm.zap(+1)
+                                dragged > swipeThreshold -> vm.zap(-1)
+                            }
+                        },
+                        onVerticalDrag = { _, dy -> dragged += dy },
+                    )
+                },
         )
 
         if (buffering && error == null) {

@@ -107,6 +107,13 @@ class GuideViewModel(
         if (target < _windowStart.value) _windowStart.value = floorSlot(target)
     }
 
+    /** Touch: select the programme airing at [time] on [row]. */
+    fun setCursor(row: Int, time: Long) {
+        val count = _channels.value?.size ?: return
+        if (count == 0) return
+        _cursor.value = GuideCursor(row.coerceIn(0, count - 1), time)
+    }
+
     /** Jumps the cursor and window back to the current time. */
     fun jumpToNow() {
         val now = System.currentTimeMillis()
