@@ -70,6 +70,24 @@ data class FavoriteEntity(
     val addedAt: Long,
 )
 
+/** A group locked with the parental PIN. Kept by name, so the lock survives a playlist refresh. */
+@Entity(
+    tableName = "locked_groups",
+    primaryKeys = ["playlistId", "groupTitle"],
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class LockedGroupEntity(
+    val playlistId: Long,
+    val groupTitle: String,
+)
+
 data class ChannelItem(
     @Embedded val channel: ChannelEntity,
     val isFavorite: Boolean,

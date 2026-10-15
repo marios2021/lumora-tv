@@ -15,18 +15,23 @@ import com.lumora.tv.data.parser.M3uParser
 import com.lumora.tv.data.parser.ParsedChannel
 import com.lumora.tv.data.remote.XtreamClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistRepository(
     private val context: Context,
     private val db: LumoraDatabase,
     private val http: OkHttpClient,
     private val xtream: XtreamClient,
+    private val parental: ParentalControl,
 ) {
     private val playlistDao = db.playlistDao()
     private val channelDao = db.channelDao()
@@ -35,11 +40,21 @@ class PlaylistRepository(
     val playlists: Flow<List<PlaylistEntity>> = playlistDao.observeAll()
 
     fun groups(playlistId: Long): Flow<List<GroupCount>> = channelDao.observeGroups(playlistId)
-    fun allChannels(playlistId: Long): Flow<List<ChannelItem>> = channelDao.observeAll(playlistId)
+
+    // Every channel list leaves out groups hidden by the parental lock.
+    private fun hidden(playlistId: Long) = parental.hiddenGroups(playlistId)
+
+    fun allChannels(playlistId: Long): Flow<List<ChannelItem>> =
+        hidden(playlistId).flatMapLatest { channelDao.observeAll(playlistId, it) }
     fun groupChannels(playlistId: Long, group: String): Flow<List<ChannelItem>> =
-        channelDao.observeGroup(playlistId, group)
-    fun favoriteChannels(playlistId: Long): Flow<List<ChannelItem>> = channelDao.observeFavorites(playlistId)
-    fun favoriteCount(playlistId: Long): Flow<Int> = favoriteDao.observeCount(playlistId)
+        hidden(playlistId).flatMapLatest { if (group in it) flowOf(emptyList()) else channelDao.observeGroup(playlistId, group) }
+    fun favoriteChannels(playlistId: Long): Flow<List<ChannelItem>> =
+        hidden(playlistId).flatMapLatest { channelDao.observeFavorites(playlistId, it) }
+    fun favoriteCount(playlistId: Long): Flow<Int> =
+        hidden(playlistId).flatMapLatest { favoriteDao.observeCount(playlistId, it) }
+
+    /** True if [channel] is in a group the parental lock hides right now. */
+    suspend fun isHidden(channel: ChannelEntity): Boolean = channel.groupTitle in parental.hidden(channel.playlistId)
 
     suspend fun channel(id: Long): ChannelEntity? = channelDao.get(id)
 
@@ -49,20 +64,24 @@ class PlaylistRepository(
 
     /** Channel numbers are 1-based positions in the whole playlist. */
     suspend fun channelByNumber(playlistId: Long, number: Int): ChannelEntity? =
-        if (number < 1) null else channelDao.getBySortOrder(playlistId, number - 1)
+        if (number < 1) null else channelDao.getBySortOrder(playlistId, number - 1)?.takeUnless { isHidden(it) }
 
     /** Channels listed for [selection], in display order. */
     suspend fun channelsFor(playlistId: Long, selection: GroupSelection): List<ChannelEntity> = when (selection) {
-        GroupSelection.All -> channelDao.observeAll(playlistId)
-        GroupSelection.Favorites -> channelDao.observeFavorites(playlistId)
-        is GroupSelection.Named -> channelDao.observeGroup(playlistId, selection.name)
+        GroupSelection.All -> allChannels(playlistId)
+        GroupSelection.Favorites -> favoriteChannels(playlistId)
+        is GroupSelection.Named -> groupChannels(playlistId, selection.name)
     }.first().map { it.channel }
 
     /** Channel ids in the order they are listed for [selection]: the zapping order in the player. */
-    suspend fun channelIds(playlistId: Long, selection: GroupSelection): List<Long> = when (selection) {
-        GroupSelection.All -> channelDao.idsAll(playlistId)
-        GroupSelection.Favorites -> channelDao.favoriteIds(playlistId)
-        is GroupSelection.Named -> channelDao.idsInGroup(playlistId, selection.name)
+    suspend fun channelIds(playlistId: Long, selection: GroupSelection): List<Long> {
+        val hidden = parental.hidden(playlistId)
+        return when (selection) {
+            GroupSelection.All -> channelDao.idsAll(playlistId, hidden)
+            GroupSelection.Favorites -> channelDao.favoriteIds(playlistId, hidden)
+            is GroupSelection.Named ->
+                if (selection.name in hidden) emptyList() else channelDao.idsInGroup(playlistId, selection.name)
+        }
     }
 
     /** Downloads and parses the source first, so a bad URL never leaves an empty playlist behind. */
@@ -102,7 +121,7 @@ class PlaylistRepository(
 
     /** Channels whose name contains [query] (case-insensitive), in playlist order. */
     suspend fun searchChannels(playlistId: Long, query: String, limit: Int = 100): List<ChannelEntity> =
-        channelDao.search(playlistId, likeEscape(query), limit)
+        channelDao.search(playlistId, likeEscape(query), parental.hidden(playlistId), limit)
 
     suspend fun get(id: Long): PlaylistEntity? = playlistDao.get(id)
 

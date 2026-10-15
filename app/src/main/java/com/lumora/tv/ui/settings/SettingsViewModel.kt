@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.repo.AppSettings
 import com.lumora.tv.data.repo.AutoRefresher
+import com.lumora.tv.data.repo.ParentalControl
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import com.lumora.tv.data.repo.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +16,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val repo: SettingsRepository,
     private val autoRefresher: AutoRefresher,
+    private val parental: ParentalControl,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = repo.current
@@ -20,6 +24,20 @@ class SettingsViewModel(
 
     private val _refreshMessage = MutableStateFlow<String?>(null)
     val refreshMessage: StateFlow<String?> = _refreshMessage.asStateFlow()
+
+    val pinSet: StateFlow<Boolean> = parental.pinSet
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val unlocked: StateFlow<Boolean> = parental.unlocked
+
+    suspend fun checkPin(pin: String) = parental.checkPin(pin)
+
+    suspend fun unlock(pin: String) = parental.unlock(pin)
+
+    suspend fun setPin(pin: String) = parental.setPin(pin)
+
+    suspend fun removePin() = parental.removePin()
+
+    fun lockAgain() = parental.lockAgain()
 
     fun toggleInvertZapping() = change { it.copy(invertZapping = !it.invertZapping) }
 

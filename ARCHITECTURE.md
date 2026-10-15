@@ -42,6 +42,7 @@ Data flows one way: **Repository → Flow → ViewModel StateFlow → Compose**.
 - **playlists**: id, name, type (`M3U_URL`, `M3U_FILE`, `XTREAM`), url, username, password, epgUrl, updatedAt
 - **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder
 - **favorites**: playlistId + channelKey. Kept in a separate table so favorites survive a playlist refresh.
+- **locked_groups**: playlistId + groupTitle, for the parental lock (milestone 7). Also kept by name, so locks survive a refresh.
 - **programs**: playlistId, epgKey, start, stop, title, description. Only programmes from 6 hours ago to 7 days ahead are kept, and only for channels that matched.
 
 ### EPG matching
@@ -61,6 +62,7 @@ Refreshing a playlist deletes and re-inserts its channels in one transaction. La
 ```
 Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   │ Menu/top bar
+  ├─▶ Search ──▶ Player, or Guide at a programme
   ├─▶ Guide (EPG grid)
   ├─▶ Playlists ──▶ Add playlist
   └─▶ Settings
@@ -112,5 +114,13 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - **HLS / DASH** already offer a window of recent segments, so rewinding seeks inside it. The load control keeps 35 s of back buffer, so going back is instant.
 - **Plain HTTP streams** (MPEG-TS, the IPTV norm) can't seek. A background thread reads the stream into a 32 MB in-memory ring buffer (`TimeshiftBuffer`, about 30 s at 8 Mbit/s), noting when each part arrived, and ExoPlayer plays from that buffer. Rewinding restarts playback from an earlier TS packet in the buffer, so the server sees only one connection (important for Xtream accounts with a connection limit).
 - "Behind live" is measured against the delay while watching live, so the badge shows 0 at live and counts up while paused.
+
+### Search and parental lock (milestone 7)
+
+- **Search** (magnifier next to Settings) looks through the active playlist's channel names and the titles of programmes that haven't finished, 300 ms after typing stops. A programme on now plays its channel; a later one opens the TV guide at that time and channel.
+- **Parental lock.** Hold OK (or long-press) on a group to lock it; the first time, this asks you to choose a 4-digit PIN. Only a salted SHA-256 hash of the PIN is stored (DataStore).
+- While locked, a group's channels are left out of every list: All channels, Favorites, the guide, zapping, channel numbers, search and "start on last channel". The group itself stays in the sidebar with a lock, and selecting it offers Unlock.
+- Entering the PIN unlocks all locked groups until the app is closed or Settings → Locked groups → Hidden. Holding OK on a locked group removes its lock (with the PIN). Removing the PIN removes every lock.
+- `ParentalControl` holds the session state; `PlaylistRepository` passes the hidden groups into each channel query (`groupTitle NOT IN (:hidden)`).
 
 Later: multi-view, picture-in-picture.

@@ -8,6 +8,7 @@ import com.lumora.tv.data.db.PlaylistEntity
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.repo.GroupSelection
+import com.lumora.tv.data.repo.ParentalControl
 import com.lumora.tv.data.repo.PlaylistRepository
 import com.lumora.tv.data.repo.SettingsRepository
 import com.lumora.tv.ui.common.minuteTicker
@@ -39,6 +40,7 @@ class HomeViewModel(
     private val repo: PlaylistRepository,
     private val settings: SettingsRepository,
     private val epg: EpgRepository,
+    private val parental: ParentalControl,
 ) : ViewModel() {
 
     val playlistState: StateFlow<PlaylistState> =
@@ -73,6 +75,32 @@ class HomeViewModel(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Groups locked with the parental PIN, and those hidden right now (locked and not unlocked). */
+    val lockedGroups: StateFlow<Set<String>> = playlistId
+        .flatMapLatest { id -> if (id == null) flowOf(emptySet()) else parental.lockedGroups(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val hiddenGroups: StateFlow<Set<String>> = playlistId
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else parental.hiddenGroups(id) }
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val pinSet: StateFlow<Boolean> = parental.pinSet
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private fun currentPlaylistId() = (playlistState.value as? PlaylistState.Ready)?.playlist?.id
+
+    fun setLocked(group: String, locked: Boolean) {
+        val id = currentPlaylistId() ?: return
+        viewModelScope.launch { parental.setLocked(id, group, locked) }
+    }
+
+    suspend fun unlock(pin: String): Boolean = parental.unlock(pin)
+
+    suspend fun checkPin(pin: String): Boolean = parental.checkPin(pin)
+
+    suspend fun setPin(pin: String) = parental.setPin(pin)
 
     /** The current time, refreshed every minute, for EPG progress. */
     val now: StateFlow<Long> = minuteTicker()

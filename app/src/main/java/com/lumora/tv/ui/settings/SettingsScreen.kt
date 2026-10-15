@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -22,16 +24,30 @@ import com.lumora.tv.ui.common.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.ui.common.LocalIsTv
+import com.lumora.tv.ui.common.NewPinDialog
+import com.lumora.tv.ui.common.PinDialog
 import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.requestFocusAfterLayout
 
 @Composable
 fun SettingsScreen() {
     val container = appContainer()
-    val vm: SettingsViewModel = viewModel { SettingsViewModel(container.settings, container.autoRefresher) }
+    val vm: SettingsViewModel = viewModel { SettingsViewModel(container.settings, container.autoRefresher, container.parental) }
     val settings by vm.settings.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val refreshMessage by vm.refreshMessage.collectAsStateWithLifecycle()
+    val pinSet by vm.pinSet.collectAsStateWithLifecycle()
+    val unlocked by vm.unlocked.collectAsStateWithLifecycle()
+    var pinFlow by remember { mutableStateOf<PinFlow?>(null) }
+    // Removing the PIN also removes the focused row: move focus to the PIN row instead.
+    val pinRowFocus = remember { FocusRequester() }
+    var refocusPinRow by remember { mutableStateOf(false) }
+    LaunchedEffect(refocusPinRow) {
+        if (refocusPinRow) {
+            pinRowFocus.requestFocusAfterLayout()
+            refocusPinRow = false
+        }
+    }
     val context = LocalContext.current
     val version = remember(context) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
@@ -119,6 +135,45 @@ fun SettingsScreen() {
                 )
             }
 
+            item { SectionHeader("Parental control") }
+            item {
+                SettingRow(
+                    title = "Parental PIN",
+                    description = if (LocalIsTv.current) {
+                        "Hold OK on a group in the channel list to lock it. Locked groups are hidden until the PIN is entered."
+                    } else {
+                        "Long-press a group in the channel list to lock it. Locked groups are hidden until the PIN is entered."
+                    },
+                    value = if (pinSet) "Change" else "Set PIN",
+                    onClick = { pinFlow = if (pinSet) PinFlow.CHANGE else PinFlow.NEW },
+                    modifier = Modifier.focusRequester(pinRowFocus),
+                )
+            }
+            if (pinSet) {
+                item {
+                    SettingRow(
+                        title = "Remove PIN",
+                        description = "Removes the PIN and every lock.",
+                        value = "",
+                        onClick = { pinFlow = PinFlow.REMOVE },
+                    )
+                }
+            }
+            if (pinSet) {
+                item {
+                    SettingRow(
+                        title = "Locked groups",
+                        description = if (unlocked) {
+                            "Visible until you hide them again or close the app."
+                        } else {
+                            "Hidden. Enter the PIN to show them until the app is closed."
+                        },
+                        value = if (unlocked) "Visible" else "Hidden",
+                        onClick = { if (unlocked) vm.lockAgain() else pinFlow = PinFlow.UNLOCK },
+                    )
+                }
+            }
+
             item { SectionHeader("About") }
             item {
                 SettingRow(
@@ -130,7 +185,45 @@ fun SettingsScreen() {
             }
         }
     }
+
+    // Changing or removing the PIN asks for the current one first.
+    var verified by remember(pinFlow) { mutableStateOf(false) }
+    when (pinFlow) {
+        null -> Unit
+        PinFlow.NEW -> NewPinDialog(onDismiss = { pinFlow = null }) { pin ->
+            vm.setPin(pin)
+            pinFlow = null
+        }
+        PinFlow.UNLOCK -> PinDialog(title = "Enter parental PIN", message = null, onDismiss = { pinFlow = null }) { pin ->
+            if (vm.unlock(pin)) {
+                pinFlow = null
+                null
+            } else {
+                "Wrong PIN"
+            }
+        }
+        PinFlow.CHANGE, PinFlow.REMOVE -> if (!verified) {
+            PinDialog(title = "Enter current PIN", message = null, onDismiss = { pinFlow = null }) { pin ->
+                if (!vm.checkPin(pin)) return@PinDialog "Wrong PIN"
+                if (pinFlow == PinFlow.REMOVE) {
+                    vm.removePin()
+                    pinFlow = null
+                    refocusPinRow = true
+                } else {
+                    verified = true
+                }
+                null
+            }
+        } else {
+            NewPinDialog(onDismiss = { pinFlow = null }) { pin ->
+                vm.setPin(pin)
+                pinFlow = null
+            }
+        }
+    }
 }
+
+private enum class PinFlow { NEW, CHANGE, REMOVE, UNLOCK }
 
 @Composable
 private fun SectionHeader(text: String) {

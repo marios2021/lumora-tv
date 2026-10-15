@@ -1,6 +1,7 @@
 package com.lumora.tv.data.repo
 
 import android.content.Context
+import android.util.Base64
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -14,8 +15,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import java.security.MessageDigest
+import java.security.SecureRandom
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -104,6 +108,37 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         }
     }
 
+    /** Whether a parental PIN has been set. Only a salted hash of it is stored. */
+    val pinSet: Flow<Boolean> = context.dataStore.data.map { it[PIN_HASH] != null }
+
+    suspend fun setPin(pin: String) {
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val saltText = Base64.encodeToString(salt, Base64.NO_WRAP)
+        context.dataStore.edit {
+            it[PIN_SALT] = saltText
+            it[PIN_HASH] = pinHash(saltText, pin)
+        }
+    }
+
+    suspend fun clearPin() {
+        context.dataStore.edit {
+            it.remove(PIN_SALT)
+            it.remove(PIN_HASH)
+        }
+    }
+
+    suspend fun checkPin(pin: String): Boolean {
+        val p = context.dataStore.data.first()
+        val salt = p[PIN_SALT] ?: return false
+        val hash = p[PIN_HASH] ?: return false
+        return MessageDigest.isEqual(hash.toByteArray(), pinHash(salt, pin).toByteArray())
+    }
+
+    private fun pinHash(salt: String, pin: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest((salt + pin).toByteArray())
+        return Base64.encodeToString(digest, Base64.NO_WRAP)
+    }
+
     private fun Preferences.toSettings() = AppSettings(
         invertZapping = this[INVERT_ZAPPING] ?: false,
         xtreamFormat = this[XTREAM_FORMAT]?.let { runCatching { StreamFormat.valueOf(it) }.getOrNull() }
@@ -126,5 +161,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val AUTO_REFRESH_HOURS = intPreferencesKey("auto_refresh_hours")
         val START_ON_LAST_CHANNEL = booleanPreferencesKey("start_on_last_channel")
         val VIDEO_OUTPUT = stringPreferencesKey("video_output")
+        val PIN_HASH = stringPreferencesKey("pin_hash")
+        val PIN_SALT = stringPreferencesKey("pin_salt")
     }
 }

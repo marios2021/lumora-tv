@@ -52,8 +52,8 @@ interface ChannelDao {
     @Query("SELECT tvgId, name FROM channels WHERE playlistId = :playlistId")
     suspend fun epgInfo(playlistId: Long): List<ChannelEpgInfo>
 
-    @Query("SELECT id FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder")
-    suspend fun idsAll(playlistId: Long): List<Long>
+    @Query("SELECT id FROM channels c WHERE playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY sortOrder")
+    suspend fun idsAll(playlistId: Long, hidden: List<String>): List<Long>
 
     @Query("SELECT id FROM channels WHERE playlistId = :playlistId AND groupTitle = :group ORDER BY sortOrder")
     suspend fun idsInGroup(playlistId: Long, group: String): List<Long>
@@ -61,9 +61,9 @@ interface ChannelDao {
     @Query(
         "SELECT c.id FROM channels c " +
             "INNER JOIN favorites f ON f.playlistId = c.playlistId AND f.channelKey = c.channelKey " +
-            "WHERE c.playlistId = :playlistId ORDER BY f.addedAt",
+            "WHERE c.playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY f.addedAt",
     )
-    suspend fun favoriteIds(playlistId: Long): List<Long>
+    suspend fun favoriteIds(playlistId: Long, hidden: List<String>): List<Long>
 
     @Query(
         "SELECT groupTitle AS name, COUNT(*) AS count FROM channels WHERE playlistId = :playlistId " +
@@ -72,13 +72,13 @@ interface ChannelDao {
     fun observeGroups(playlistId: Long): Flow<List<GroupCount>>
 
     @Query(
-        "SELECT * FROM channels WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ESCAPE '\\' " +
-            "ORDER BY sortOrder LIMIT :limit",
+        "SELECT * FROM channels c WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ESCAPE '\\' " +
+            "AND c.groupTitle NOT IN (:hidden) ORDER BY sortOrder LIMIT :limit",
     )
-    suspend fun search(playlistId: Long, query: String, limit: Int): List<ChannelEntity>
+    suspend fun search(playlistId: Long, query: String, hidden: List<String>, limit: Int): List<ChannelEntity>
 
-    @Query("$CHANNEL_WITH_FAVORITE WHERE c.playlistId = :playlistId ORDER BY c.sortOrder")
-    fun observeAll(playlistId: Long): Flow<List<ChannelItem>>
+    @Query("$CHANNEL_WITH_FAVORITE WHERE c.playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY c.sortOrder")
+    fun observeAll(playlistId: Long, hidden: List<String>): Flow<List<ChannelItem>>
 
     @Query("$CHANNEL_WITH_FAVORITE WHERE c.playlistId = :playlistId AND c.groupTitle = :group ORDER BY c.sortOrder")
     fun observeGroup(playlistId: Long, group: String): Flow<List<ChannelItem>>
@@ -86,9 +86,9 @@ interface ChannelDao {
     @Query(
         "SELECT c.*, 1 AS isFavorite FROM channels c " +
             "INNER JOIN favorites f ON f.playlistId = c.playlistId AND f.channelKey = c.channelKey " +
-            "WHERE c.playlistId = :playlistId ORDER BY f.addedAt",
+            "WHERE c.playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY f.addedAt",
     )
-    fun observeFavorites(playlistId: Long): Flow<List<ChannelItem>>
+    fun observeFavorites(playlistId: Long, hidden: List<String>): Flow<List<ChannelItem>>
 }
 
 @Dao
@@ -99,8 +99,27 @@ interface FavoriteDao {
     @Query("DELETE FROM favorites WHERE playlistId = :playlistId AND channelKey = :channelKey")
     suspend fun remove(playlistId: Long, channelKey: String)
 
-    @Query("SELECT COUNT(*) FROM favorites WHERE playlistId = :playlistId")
-    fun observeCount(playlistId: Long): Flow<Int>
+    @Query(
+        "SELECT COUNT(*) FROM favorites f INNER JOIN channels c " +
+            "ON c.playlistId = f.playlistId AND c.channelKey = f.channelKey " +
+            "WHERE f.playlistId = :playlistId AND c.groupTitle NOT IN (:hidden)",
+    )
+    fun observeCount(playlistId: Long, hidden: List<String>): Flow<Int>
+}
+
+@Dao
+interface LockedGroupDao {
+    @Query("SELECT groupTitle FROM locked_groups WHERE playlistId = :playlistId")
+    fun observe(playlistId: Long): Flow<List<String>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(group: LockedGroupEntity)
+
+    @Query("DELETE FROM locked_groups WHERE playlistId = :playlistId AND groupTitle = :group")
+    suspend fun remove(playlistId: Long, group: String)
+
+    @Query("DELETE FROM locked_groups")
+    suspend fun clear()
 }
 
 @Dao

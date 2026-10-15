@@ -51,6 +51,7 @@ fun LumoraNavHost() {
         startChecked = true
         if (!container.settings.settings.first().startOnLastChannel) return@LaunchedEffect
         val channel = container.playlists.channel(container.settings.lastChannel.first()) ?: return@LaunchedEffect
+        if (container.playlists.isHidden(channel)) return@LaunchedEffect
         container.settings.setActivePlaylist(channel.playlistId)
         nav.navigate(Routes.player(channel.id, GroupSelection.All))
     }

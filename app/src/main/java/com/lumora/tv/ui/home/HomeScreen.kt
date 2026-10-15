@@ -1,5 +1,6 @@
 package com.lumora.tv.ui.home
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CalendarViewWeek
@@ -57,6 +60,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import com.lumora.tv.ui.common.IconButton
 import com.lumora.tv.ui.common.ListItem
+import com.lumora.tv.ui.common.NewPinDialog
+import com.lumora.tv.ui.common.PinDialog
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelItem
@@ -86,7 +91,7 @@ fun HomeScreen(
     onOpenSearch: (playlistId: Long) -> Unit,
 ) {
     val container = appContainer()
-    val vm: HomeViewModel = viewModel { HomeViewModel(container.playlists, container.settings, container.epg) }
+    val vm: HomeViewModel = viewModel { HomeViewModel(container.playlists, container.settings, container.epg, container.parental) }
     val state by vm.playlistState.collectAsStateWithLifecycle()
 
     when (val s = state) {
@@ -157,6 +162,30 @@ private fun ChannelBrowser(
     val groups by vm.groups.collectAsStateWithLifecycle()
     val favoriteCount by vm.favoriteCount.collectAsStateWithLifecycle()
     val channels by vm.channels.collectAsStateWithLifecycle()
+    val lockedGroups by vm.lockedGroups.collectAsStateWithLifecycle()
+    val hiddenGroups by vm.hiddenGroups.collectAsStateWithLifecycle()
+    val pinSet by vm.pinSet.collectAsStateWithLifecycle()
+    var pinRequest by remember { mutableStateOf<PinRequest?>(null) }
+    // After a PIN dialog closes, put focus back on the selected group (the Unlock button is gone).
+    var refocusGroup by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+
+    // Hold OK (or long-press) on a group: lock it, or remove its lock.
+    fun toggleLock(group: String) {
+        when {
+            group !in lockedGroups && !pinSet -> pinRequest = PinRequest.NewPinThenLock(group)
+            group !in lockedGroups -> {
+                vm.setLocked(group, true)
+                toast("\u201c$group\u201d is locked")
+            }
+            group in hiddenGroups -> pinRequest = PinRequest.RemoveLock(group)
+            else -> {
+                vm.setLocked(group, false)
+                toast("\u201c$group\u201d is no longer locked")
+            }
+        }
+    }
 
     val selectedGroupFocus = remember { FocusRequester() }
     val playedChannelFocus = remember { FocusRequester() }
@@ -192,6 +221,13 @@ private fun ChannelBrowser(
             if (playedChannelFocus.requestFocusAfterLayout()) return@LaunchedEffect
         }
         selectedGroupFocus.requestFocusAfterLayout()
+    }
+
+    LaunchedEffect(refocusGroup) {
+        if (refocusGroup) {
+            selectedGroupFocus.requestFocusAfterLayout()
+            refocusGroup = false
+        }
     }
 
     // Back: from the channel list go to the groups first; then press twice within a moment to exit.
@@ -265,7 +301,7 @@ private fun ChannelBrowser(
                 }
                 Spacer(Modifier.height(16.dp))
 
-                val total = groups.sumOf { it.count }
+                val total = groups.filter { it.name !in hiddenGroups }.sumOf { it.count }
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
@@ -303,6 +339,12 @@ private fun ChannelBrowser(
                             focusRequester = selectedGroupFocus.takeIf { selection == named },
                             onFocus = { vm.selectAfterPause(named) },
                             onClick = { if (selection == named) enterChannels() else vm.select(named) },
+                            lock = when {
+                                group.name in hiddenGroups -> GroupLock.LOCKED
+                                group.name in lockedGroups -> GroupLock.UNLOCKED
+                                else -> GroupLock.NONE
+                            },
+                            onLongClick = { toggleLock(group.name) },
                         )
                     }
                 }
@@ -325,7 +367,8 @@ private fun ChannelBrowser(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
+                val lockedSelection = (selection as? GroupSelection.Named)?.name?.takeIf { it in hiddenGroups }
+                if (lockedSelection == null) Text(
                     if (LocalIsTv.current) {
                         "OK to play  ·  hold OK to add or remove a favorite"
                     } else {
@@ -338,6 +381,17 @@ private fun ChannelBrowser(
 
                 val list = channels
                 when {
+                    lockedSelection != null -> LockedGroup(
+                        unlockFocus = channelEntryFocus,
+                        onUnlock = { pinRequest = PinRequest.Unlock },
+                        modifier = Modifier
+                            // Like entering a channel list: keep this group, and Back returns to the groups.
+                            .onFocusChanged {
+                                channelListFocused = it.hasFocus
+                                if (it.hasFocus) vm.onChannelListFocused()
+                            }
+                            .onPreviewKeyEvent { it.isKeyDown(Key.DirectionLeft) && enterGroups() },
+                    )
                     list == null -> Unit
                     list.isEmpty() -> EmptyChannels(selection)
                     else -> LazyColumn(
@@ -379,6 +433,78 @@ private fun ChannelBrowser(
         }
         if (exitArmed) ExitHint(Modifier.align(Alignment.BottomCenter))
     }
+
+    when (val request = pinRequest) {
+        null -> Unit
+        PinRequest.Unlock -> PinDialog(
+            title = "Enter parental PIN",
+            message = "Locked groups stay visible until you lock them again in Settings or close the app.",
+            onDismiss = { pinRequest = null },
+        ) { pin ->
+            if (vm.unlock(pin)) {
+                pinRequest = null
+                refocusGroup = true
+                null
+            } else {
+                "Wrong PIN"
+            }
+        }
+        is PinRequest.RemoveLock -> PinDialog(
+            title = "Remove the lock?",
+            message = "Enter the parental PIN to unlock \u201c${request.group}\u201d for good.",
+            onDismiss = { pinRequest = null },
+        ) { pin ->
+            if (vm.checkPin(pin)) {
+                vm.setLocked(request.group, false)
+                pinRequest = null
+                toast("\u201c${request.group}\u201d is no longer locked")
+                null
+            } else {
+                "Wrong PIN"
+            }
+        }
+        is PinRequest.NewPinThenLock -> NewPinDialog(onDismiss = { pinRequest = null }) { pin ->
+            vm.setPin(pin)
+            vm.setLocked(request.group, true)
+            pinRequest = null
+            toast("PIN set. \u201c${request.group}\u201d is locked")
+        }
+    }
+}
+
+private sealed interface PinRequest {
+    data object Unlock : PinRequest
+    data class RemoveLock(val group: String) : PinRequest
+    data class NewPinThenLock(val group: String) : PinRequest
+}
+
+private enum class GroupLock { NONE, LOCKED, UNLOCKED }
+
+@Composable
+private fun LockedGroup(unlockFocus: FocusRequester, onUnlock: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(bottom = 80.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("This group is locked", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Its channels are hidden everywhere until you enter the parental PIN.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onUnlock, modifier = Modifier.focusRequester(unlockFocus)) {
+            Icon(Icons.Filled.LockOpen, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Unlock")
+        }
+    }
 }
 
 @Composable
@@ -402,10 +528,13 @@ private fun GroupRow(
     focusRequester: FocusRequester?,
     onFocus: () -> Unit,
     onClick: () -> Unit,
+    lock: GroupLock = GroupLock.NONE,
+    onLongClick: (() -> Unit)? = null,
 ) {
     ListItem(
         selected = selected,
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { if (it.hasFocus) onFocus() },
@@ -413,7 +542,15 @@ private fun GroupRow(
             Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         trailingContent = {
-            Text(count.toString(), style = MaterialTheme.typography.labelMedium)
+            when (lock) {
+                GroupLock.LOCKED -> Icon(Icons.Filled.Lock, contentDescription = "Locked", modifier = Modifier.size(18.dp))
+                GroupLock.UNLOCKED -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.LockOpen, contentDescription = "Unlocked", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(count.toString(), style = MaterialTheme.typography.labelMedium)
+                }
+                GroupLock.NONE -> Text(count.toString(), style = MaterialTheme.typography.labelMedium)
+            }
         },
     )
 }
