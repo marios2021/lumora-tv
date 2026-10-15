@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.ProgramEntity
+import com.lumora.tv.data.db.VodEntity
+import com.lumora.tv.data.repo.VodRepository
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.epg.epgKey
 import com.lumora.tv.data.repo.GroupSelection
@@ -26,8 +28,9 @@ data class SearchResults(
     val query: String = "",
     val channels: List<ChannelEntity> = emptyList(),
     val programs: List<ProgramHit> = emptyList(),
+    val vod: List<VodEntity> = emptyList(),
 ) {
-    val isEmpty get() = channels.isEmpty() && programs.isEmpty()
+    val isEmpty get() = channels.isEmpty() && programs.isEmpty() && vod.isEmpty()
 }
 
 const val MIN_QUERY = 2
@@ -36,6 +39,7 @@ const val MIN_QUERY = 2
 class SearchViewModel(
     private val repo: PlaylistRepository,
     private val epg: EpgRepository,
+    private val vod: VodRepository,
     private val playlistId: Long,
 ) : ViewModel() {
 
@@ -66,6 +70,6 @@ class SearchViewModel(
                 .also { channelsByEpgKey = it }
         val programs = epg.searchPrograms(playlistId, q, System.currentTimeMillis())
             .mapNotNull { p -> byKey[p.epgKey]?.let { ProgramHit(p, it) } }
-        return SearchResults(q, channels, programs)
+        return SearchResults(q, channels, programs, vod.search(playlistId, q))
     }
 }

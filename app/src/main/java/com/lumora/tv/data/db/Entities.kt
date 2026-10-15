@@ -88,6 +88,65 @@ data class LockedGroupEntity(
     val groupTitle: String,
 )
 
+enum class VodKind { MOVIE, SERIES }
+
+/** A movie or a series from an Xtream playlist's catalogue. Details are fetched when opened. */
+@Entity(
+    tableName = "vod",
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("playlistId", "kind", "groupTitle"), Index("playlistId", "kind", "itemId")],
+)
+data class VodEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val playlistId: Long,
+    val kind: VodKind,
+    /** The provider's stream_id (movies) or series_id. */
+    val itemId: String,
+    val name: String,
+    val groupTitle: String,
+    val poster: String?,
+    val rating: String?,
+    val year: String?,
+    /** Movies: the container to request (mp4, mkv...). */
+    val extension: String?,
+    val added: Long,
+    val sortOrder: Int,
+)
+
+/**
+ * Where playback of a movie or episode stopped, so it can resume. [contentKey] is "movie:<id>"
+ * or "episode:<id>"; [seriesId] links episodes back to their series.
+ */
+@Entity(
+    tableName = "playback_progress",
+    primaryKeys = ["playlistId", "contentKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ProgressEntity(
+    val playlistId: Long,
+    val contentKey: String,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+    val seriesId: String? = null,
+) {
+    val fraction: Float get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+}
+
 data class ChannelItem(
     @Embedded val channel: ChannelEntity,
     val isFavorite: Boolean,

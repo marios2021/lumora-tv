@@ -8,6 +8,7 @@ import com.lumora.tv.data.repo.AutoRefresher
 import com.lumora.tv.data.repo.ParentalControl
 import com.lumora.tv.data.repo.PlaylistRepository
 import com.lumora.tv.data.repo.SettingsRepository
+import com.lumora.tv.data.repo.VodRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,7 +40,9 @@ class AppContainer(context: Context) {
     val database: LumoraDatabase = LumoraDatabase.create(appContext)
     val settings = SettingsRepository(appContext, appScope)
     val parental = ParentalControl(database.lockedGroupDao(), settings)
-    val playlists = PlaylistRepository(appContext, database, http, XtreamClient(http), parental)
+    private val xtream = XtreamClient(http)
+    val vod = VodRepository(database, xtream, appScope)
+    val playlists = PlaylistRepository(appContext, database, http, xtream, parental, vod)
     val epg = EpgRepository(appContext, database, http, appScope)
     val autoRefresher = AutoRefresher(playlists, epg, settings, appScope)
 

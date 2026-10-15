@@ -36,6 +36,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.db.VodEntity
+import com.lumora.tv.data.db.VodKind
 import com.lumora.tv.ui.common.ChannelLogo
 import com.lumora.tv.ui.common.FormField
 import com.lumora.tv.ui.common.ListItem
@@ -51,9 +53,10 @@ fun SearchScreen(
     onPlay: (channelId: Long) -> Unit,
     /** A future programme: show it in the guide. */
     onOpenGuide: (channelId: Long, time: Long) -> Unit,
+    onOpenVod: (VodEntity) -> Unit,
 ) {
     val container = appContainer()
-    val vm: SearchViewModel = viewModel { SearchViewModel(container.playlists, container.epg, playlistId) }
+    val vm: SearchViewModel = viewModel { SearchViewModel(container.playlists, container.epg, container.vod, playlistId) }
     val query by vm.query.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -71,7 +74,7 @@ fun SearchScreen(
         Text("Search", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         FormField(
-            label = "Channel or programme",
+            label = "Channels, programmes, movies and series",
             value = query,
             onValueChange = vm::setQuery,
             imeAction = ImeAction.Search,
@@ -106,6 +109,24 @@ fun SearchScreen(
                     item { Heading("Channels", r.channels.size) }
                     items(r.channels, key = { "c" + it.id }) { channel ->
                         ChannelResult(channel) { onPlay(channel.id) }
+                    }
+                }
+                if (r.vod.isNotEmpty()) {
+                    item { Heading("Movies and series", r.vod.size) }
+                    items(r.vod, key = { "v" + it.id }) { v ->
+                        ListItem(
+                            selected = false,
+                            onClick = { onOpenVod(v) },
+                            modifier = Modifier.width(860.dp),
+                            headlineContent = { Text(v.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = {
+                                Text(
+                                    listOfNotNull(if (v.kind == VodKind.MOVIE) "Movie" else "Series", v.year, v.groupTitle).joinToString("  ·  "),
+                                    maxLines = 1,
+                                )
+                            },
+                            leadingContent = { ChannelLogo(v.poster, v.name, size = 44.dp) },
+                        )
                     }
                 }
                 if (r.programs.isNotEmpty()) {

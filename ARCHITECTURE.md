@@ -43,6 +43,8 @@ Data flows one way: **Repository → Flow → ViewModel StateFlow → Compose**.
 - **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder
 - **favorites**: playlistId + channelKey. Kept in a separate table so favorites survive a playlist refresh.
 - **locked_groups**: playlistId + groupTitle, for the parental lock (milestone 7). Also kept by name, so locks survive a refresh.
+- **vod**: movies and series of Xtream playlists (kind, provider id, name, category, poster, rating, year, file type). Details, seasons and episodes are fetched when a title is opened.
+- **playback_progress**: playlistId + content key (`movie:<id>` / `episode:<id>`), position, duration, and the series an episode belongs to.
 - **programs**: playlistId, epgKey, start, stop, title, description. Only programmes from 6 hours ago to 7 days ahead are kept, and only for channels that matched.
 
 ### EPG matching
@@ -62,7 +64,8 @@ Refreshing a playlist deletes and re-inserts its channels in one transaction. La
 ```
 Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   │ Menu/top bar
-  ├─▶ Search ──▶ Player, or Guide at a programme
+  ├─▶ Search ──▶ Player, Guide at a programme, or a movie / series
+  ├─▶ Movies / Series (Xtream) ──▶ Details ──▶ VOD player
   ├─▶ Guide (EPG grid)
   ├─▶ Playlists ──▶ Add playlist
   └─▶ Settings
@@ -122,5 +125,14 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - While locked, a group's channels are left out of every list: All channels, Favorites, the guide, zapping, channel numbers, search and "start on last channel". The group itself stays in the sidebar with a lock, and selecting it offers Unlock.
 - Entering the PIN unlocks all locked groups until the app is closed or Settings → Locked groups → Hidden. Holding OK on a locked group removes its lock (with the PIN). Removing the PIN removes every lock.
 - `ParentalControl` holds the session state; `PlaylistRepository` passes the hidden groups into each channel query (`groupTitle NOT IN (:hidden)`).
+
+### Movies and series (milestone 8)
+
+- Xtream playlists load their movie and series catalogues (`get_vod_*`, `get_series*`) in the background after the live channels, on add, refresh and edit. A panel without them just shows none. Catalogues are streamed from JSON and inserted in batches, like channels.
+- Home shows **Movies** and **Series** buttons for Xtream playlists. Each opens shelves (Continue watching, All, categories) beside a poster grid.
+- A **movie** page shows the poster, backdrop, year, length, rating, genre, plot and credits (`get_vod_info`), with Play, or Resume / Play from start. A **series** page lists seasons and episodes (`get_series_info`) and starts on the episode watched last.
+- The **VOD player** is seekable: OK play/pause, ◀ ▶ 10 s (held: 30 s), Rewind / Fast-forward 30 s; on touch, tap for controls and tap the bar to seek. It saves the position every 10 s and on exit; past 95 % counts as watched.
+- Search also finds movies and series.
+- URLs: `{server}/movie/{user}/{pass}/{id}.{ext}` and `{server}/series/{user}/{pass}/{episodeId}.{ext}`.
 
 Later: multi-view, picture-in-picture.

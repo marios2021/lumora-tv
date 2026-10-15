@@ -32,6 +32,7 @@ class PlaylistRepository(
     private val http: OkHttpClient,
     private val xtream: XtreamClient,
     private val parental: ParentalControl,
+    private val vod: VodRepository,
 ) {
     private val playlistDao = db.playlistDao()
     private val channelDao = db.channelDao()
@@ -98,7 +99,7 @@ class PlaylistRepository(
             )
             insertChannels(id, loaded.channels)
             id
-        }
+        }.also { if (draft.type == PlaylistType.XTREAM) vod.refreshInBackground(it) }
     }
 
     /** Re-downloads a playlist and replaces its channels. Returns the new channel count. */
@@ -116,6 +117,7 @@ class PlaylistRepository(
                 ),
             )
         }
+        if (playlist.type == PlaylistType.XTREAM) vod.refreshInBackground(id)
         loaded.channels.size
     }
 
@@ -158,6 +160,8 @@ class PlaylistRepository(
                 ),
             )
         }
+        vod.clear(edited.id)
+        if (edited.type == PlaylistType.XTREAM) vod.refreshInBackground(edited.id)
         true
     }
 

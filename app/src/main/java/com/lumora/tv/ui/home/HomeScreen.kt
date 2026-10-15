@@ -24,6 +24,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -66,6 +68,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelItem
 import com.lumora.tv.data.db.PlaylistEntity
+import com.lumora.tv.data.db.PlaylistType
+import com.lumora.tv.data.db.VodKind
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.epgKey
 import com.lumora.tv.data.repo.GroupSelection
@@ -89,6 +93,7 @@ fun HomeScreen(
     onOpenGuide: (playlistId: Long, context: GroupSelection) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: (playlistId: Long) -> Unit,
+    onOpenCatalog: (playlistId: Long, kind: VodKind) -> Unit,
 ) {
     val container = appContainer()
     val vm: HomeViewModel = viewModel { HomeViewModel(container.playlists, container.settings, container.epg, container.parental) }
@@ -114,6 +119,10 @@ fun HomeScreen(
             onOpenSearch = {
                 vm.returningFromPlayer = true
                 onOpenSearch(s.playlist.id)
+            },
+            onOpenCatalog = { kind ->
+                vm.returningFromPlayer = true
+                onOpenCatalog(s.playlist.id, kind)
             },
         )
     }
@@ -154,6 +163,7 @@ private fun ChannelBrowser(
     onOpenGuide: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenCatalog: (VodKind) -> Unit,
 ) {
     val selection by vm.selection.collectAsStateWithLifecycle()
     val airing by vm.airing.collectAsStateWithLifecycle()
@@ -297,6 +307,25 @@ private fun ChannelBrowser(
                         Icon(Icons.Filled.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Playlists", maxLines = 1)
+                    }
+                }
+                // Xtream accounts also offer movies and series.
+                if (playlist.type == PlaylistType.XTREAM) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.onFocusChanged { if (it.hasFocus) vm.onHeaderFocused() },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(onClick = { onOpenCatalog(VodKind.MOVIE) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Movie, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Movies", maxLines = 1)
+                        }
+                        Button(onClick = { onOpenCatalog(VodKind.SERIES) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Tv, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Series", maxLines = 1)
+                        }
                     }
                 }
                 Spacer(Modifier.height(16.dp))

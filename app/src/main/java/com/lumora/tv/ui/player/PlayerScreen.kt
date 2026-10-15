@@ -620,7 +620,7 @@ private val OK_KEYS = setOf(
 )
 
 /** Automatic: TextureView on phones and tablets (avoids black video on some), SurfaceView on TVs. */
-private fun useTextureView(context: Context, output: VideoOutput): Boolean = when (output) {
+internal fun useTextureView(context: Context, output: VideoOutput): Boolean = when (output) {
     VideoOutput.TEXTURE_VIEW -> true
     VideoOutput.SURFACE_VIEW -> false
     VideoOutput.AUTO -> {

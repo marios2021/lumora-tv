@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -150,4 +151,63 @@ interface ProgramDao {
 
     @Query("SELECT COUNT(*) FROM programs WHERE playlistId = :playlistId")
     fun observeCount(playlistId: Long): Flow<Int>
+}
+
+@Dao
+interface VodDao {
+    @Insert
+    suspend fun insertAll(items: List<VodEntity>)
+
+    @Query("DELETE FROM vod WHERE playlistId = :playlistId AND kind = :kind")
+    suspend fun deleteFor(playlistId: Long, kind: VodKind)
+
+    @Query(
+        "SELECT groupTitle AS name, COUNT(*) AS count FROM vod WHERE playlistId = :playlistId AND kind = :kind " +
+            "GROUP BY groupTitle ORDER BY MIN(sortOrder)",
+    )
+    fun observeGroups(playlistId: Long, kind: VodKind): Flow<List<GroupCount>>
+
+    @Query("SELECT * FROM vod WHERE playlistId = :playlistId AND kind = :kind ORDER BY sortOrder")
+    fun observeAll(playlistId: Long, kind: VodKind): Flow<List<VodEntity>>
+
+    @Query("SELECT * FROM vod WHERE playlistId = :playlistId AND kind = :kind AND groupTitle = :group ORDER BY sortOrder")
+    fun observeGroup(playlistId: Long, kind: VodKind, group: String): Flow<List<VodEntity>>
+
+    /** Movies or series started but not finished, most recent first. */
+    @Query(
+        "SELECT v.* FROM vod v INNER JOIN (" +
+            "SELECT playlistId, COALESCE(seriesId, SUBSTR(contentKey, 7)) AS itemId, MAX(updatedAt) AS lastAt " +
+            "FROM playback_progress WHERE playlistId = :playlistId " +
+            "AND contentKey LIKE (CASE WHEN :kind = 'MOVIE' THEN 'movie:%' ELSE 'episode:%' END) " +
+            "GROUP BY 1, 2) p ON p.playlistId = v.playlistId AND p.itemId = v.itemId " +
+            "WHERE v.playlistId = :playlistId AND v.kind = :kind ORDER BY p.lastAt DESC",
+    )
+    fun observeContinue(playlistId: Long, kind: VodKind): Flow<List<VodEntity>>
+
+    @Query("SELECT * FROM vod WHERE playlistId = :playlistId AND kind = :kind AND itemId = :itemId LIMIT 1")
+    suspend fun get(playlistId: Long, kind: VodKind, itemId: String): VodEntity?
+
+    @Query("SELECT COUNT(*) FROM vod WHERE playlistId = :playlistId AND kind = :kind")
+    fun observeCount(playlistId: Long, kind: VodKind): Flow<Int>
+
+    @Query(
+        "SELECT * FROM vod WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ESCAPE '\\' " +
+            "ORDER BY kind, sortOrder LIMIT :limit",
+    )
+    suspend fun search(playlistId: Long, query: String, limit: Int): List<VodEntity>
+}
+
+@Dao
+interface ProgressDao {
+    @Upsert
+    suspend fun save(progress: ProgressEntity)
+
+    @Query("DELETE FROM playback_progress WHERE playlistId = :playlistId AND contentKey = :contentKey")
+    suspend fun delete(playlistId: Long, contentKey: String)
+
+    @Query("SELECT * FROM playback_progress WHERE playlistId = :playlistId AND contentKey = :contentKey")
+    fun observe(playlistId: Long, contentKey: String): Flow<ProgressEntity?>
+
+    @Query("SELECT * FROM playback_progress WHERE playlistId = :playlistId AND seriesId = :seriesId")
+    fun observeSeries(playlistId: Long, seriesId: String): Flow<List<ProgressEntity>>
 }

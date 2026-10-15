@@ -2,6 +2,7 @@ package com.lumora.tv.ui.common
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -13,6 +14,7 @@ import androidx.tv.material3.ButtonColors
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.OutlinedButtonDefaults
 import androidx.tv.material3.Button as TvButton
+import androidx.tv.material3.Card as TvCard
 import androidx.tv.material3.IconButton as TvIconButton
 import androidx.tv.material3.ListItem as TvListItem
 import androidx.tv.material3.OutlinedButton as TvOutlinedButton
@@ -104,4 +106,15 @@ fun ListItem(
     supportingContent = supportingContent,
     leadingContent = leadingContent,
     trailingContent = trailingContent,
+)
+
+@Composable
+fun Card(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) = TvCard(
+    onClick = onClick,
+    modifier = modifier.touchClick(onClick = onClick),
+    content = content,
 )

@@ -16,7 +16,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.io.Reader
 
-/** Talks to the Xtream Codes `player_api.php` interface. Live TV only for now. */
+/** Talks to the Xtream Codes `player_api.php` interface: live TV, movies and series. */
 class XtreamClient(private val http: OkHttpClient) {
 
     suspend fun loadLive(
@@ -71,6 +71,46 @@ class XtreamClient(private val http: OkHttpClient) {
 
         LoadedPlaylist(epg, channels)
     }
+
+    /** The movie catalogue (get_vod_categories + get_vod_streams), in category order. */
+    suspend fun loadMovies(server: String, username: String, password: String): List<CatalogItem> =
+        loadCatalog(server, username, password, "get_vod_categories", "get_vod_streams", "stream_id", "stream_icon")
+
+    /** The series catalogue (get_series_categories + get_series), in category order. */
+    suspend fun loadSeries(server: String, username: String, password: String): List<CatalogItem> =
+        loadCatalog(server, username, password, "get_series_categories", "get_series", "series_id", "cover")
+
+    private suspend fun loadCatalog(
+        server: String,
+        username: String,
+        password: String,
+        categoriesAction: String,
+        itemsAction: String,
+        idField: String,
+        imageField: String,
+    ): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val base = baseUrl(server)
+        val categories = XtreamCatalog.categories(fetchText(api(base, username, password, categoriesAction)))
+        val order = categories.values.withIndex().associate { it.value to it.index }
+        fetch(api(base, username, password, itemsAction)) { XtreamCatalog.items(it, idField, imageField, categories) }
+            .sortedBy { order[it.group] ?: Int.MAX_VALUE }
+    }
+
+    suspend fun movieInfo(server: String, username: String, password: String, id: String, extension: String?): MovieInfo =
+        withContext(Dispatchers.IO) {
+            val url = api(baseUrl(server), username, password, "get_vod_info").newBuilder()
+                .addQueryParameter("vod_id", id)
+                .build()
+            XtreamCatalog.movieInfo(fetchText(url), extension)
+        }
+
+    suspend fun seriesInfo(server: String, username: String, password: String, id: String): SeriesInfo =
+        withContext(Dispatchers.IO) {
+            val url = api(baseUrl(server), username, password, "get_series_info").newBuilder()
+                .addQueryParameter("series_id", id)
+                .build()
+            XtreamCatalog.seriesInfo(fetchText(url))
+        }
 
     private class Stream(
         val streamId: String,
@@ -170,6 +210,12 @@ class XtreamClient(private val http: OkHttpClient) {
                 .addQueryParameter("password", password)
                 .apply { if (action != null) addQueryParameter("action", action) }
                 .build()
+
+        fun movieUrl(server: String, username: String, password: String, id: String, ext: String): String =
+            XtreamCatalog.fileUrl(baseUrl(server), "movie", username, password, id, ext)
+
+        fun episodeUrl(server: String, username: String, password: String, id: String, ext: String): String =
+            XtreamCatalog.fileUrl(baseUrl(server), "series", username, password, id, ext)
 
         fun streamUrl(base: HttpUrl, username: String, password: String, streamId: String, ext: String): String =
             base.newBuilder()

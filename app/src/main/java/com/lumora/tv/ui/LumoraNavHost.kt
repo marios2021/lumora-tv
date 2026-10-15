@@ -20,7 +20,16 @@ import com.lumora.tv.ui.home.HomeScreen
 import com.lumora.tv.ui.player.PlayerScreen
 import com.lumora.tv.ui.playlists.AddPlaylistScreen
 import com.lumora.tv.ui.playlists.PlaylistsScreen
+import androidx.compose.runtime.remember
+import com.lumora.tv.data.db.VodKind
 import com.lumora.tv.ui.search.SearchScreen
+import com.lumora.tv.ui.vod.CatalogScreen
+import com.lumora.tv.ui.vod.MovieDetailsScreen
+import com.lumora.tv.ui.vod.SeriesDetailsScreen
+import com.lumora.tv.ui.vod.VodPlayerScreen
+import com.lumora.tv.ui.vod.VodRequest
+import com.lumora.tv.ui.vod.decodeVodRequest
+import com.lumora.tv.ui.vod.encode
 import com.lumora.tv.ui.settings.SettingsScreen
 
 private object Routes {
@@ -35,6 +44,14 @@ private object Routes {
     const val GUIDE = "guide/{playlistId}?context={context}&channel={channel}&time={time}"
     fun guide(playlistId: Long, context: GroupSelection, channelId: Long = -1, time: Long = -1) =
         "guide/$playlistId?context=" + Uri.encode(context.encode()) + "&channel=$channelId&time=$time"
+    const val CATALOG = "catalog/{playlistId}/{kind}"
+    fun catalog(playlistId: Long, kind: VodKind) = "catalog/$playlistId/${kind.name}"
+    const val MOVIE = "movie/{playlistId}/{itemId}"
+    fun movie(playlistId: Long, itemId: String) = "movie/$playlistId/" + Uri.encode(itemId)
+    const val SERIES = "series/{playlistId}/{itemId}"
+    fun series(playlistId: Long, itemId: String) = "series/$playlistId/" + Uri.encode(itemId)
+    const val PLAY = "play?req={req}"
+    fun play(request: VodRequest) = "play?req=" + Uri.encode(request.encode())
     const val SEARCH = "search/{playlistId}"
     fun search(playlistId: Long) = "search/$playlistId"
 }
@@ -64,7 +81,52 @@ fun LumoraNavHost() {
                 onOpenGuide = { playlistId, context -> nav.navigate(Routes.guide(playlistId, context)) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenSearch = { nav.navigate(Routes.search(it)) },
+                onOpenCatalog = { playlistId, kind -> nav.navigate(Routes.catalog(playlistId, kind)) },
             )
+        }
+        composable(
+            Routes.CATALOG,
+            arguments = listOf(
+                navArgument("playlistId") { type = NavType.LongType },
+                navArgument("kind") { type = NavType.StringType },
+            ),
+        ) { entry ->
+            val playlistId = entry.arguments?.getLong("playlistId") ?: 0L
+            val kind = runCatching { VodKind.valueOf(entry.arguments?.getString("kind").orEmpty()) }.getOrDefault(VodKind.MOVIE)
+            CatalogScreen(playlistId, kind) { item ->
+                nav.navigate(if (kind == VodKind.MOVIE) Routes.movie(playlistId, item.itemId) else Routes.series(playlistId, item.itemId))
+            }
+        }
+        composable(
+            Routes.MOVIE,
+            arguments = listOf(navArgument("playlistId") { type = NavType.LongType }, navArgument("itemId") { type = NavType.StringType }),
+        ) { entry ->
+            MovieDetailsScreen(
+                playlistId = entry.arguments?.getLong("playlistId") ?: 0L,
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onPlay = { nav.navigate(Routes.play(it)) },
+            )
+        }
+        composable(
+            Routes.SERIES,
+            arguments = listOf(navArgument("playlistId") { type = NavType.LongType }, navArgument("itemId") { type = NavType.StringType }),
+        ) { entry ->
+            SeriesDetailsScreen(
+                playlistId = entry.arguments?.getLong("playlistId") ?: 0L,
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onPlay = { nav.navigate(Routes.play(it)) },
+            )
+        }
+        composable(
+            Routes.PLAY,
+            arguments = listOf(navArgument("req") { type = NavType.StringType }),
+        ) { entry ->
+            val request = remember(entry) { runCatching { decodeVodRequest(entry.arguments?.getString("req").orEmpty()) }.getOrNull() }
+            if (request == null) {
+                LaunchedEffect(Unit) { nav.popBackStack() }
+            } else {
+                VodPlayerScreen(request, onBack = { nav.popBackStack() })
+            }
         }
         composable(
             Routes.SEARCH,
@@ -76,6 +138,9 @@ fun LumoraNavHost() {
                 onPlay = { nav.navigate(Routes.player(it, GroupSelection.All)) },
                 onOpenGuide = { channelId, time ->
                     nav.navigate(Routes.guide(playlistId, GroupSelection.All, channelId, time))
+                },
+                onOpenVod = { v ->
+                    nav.navigate(if (v.kind == VodKind.MOVIE) Routes.movie(playlistId, v.itemId) else Routes.series(playlistId, v.itemId))
                 },
             )
         }
