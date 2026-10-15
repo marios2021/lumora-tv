@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lumora.tv.ui.common.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.requestFocusAfterLayout
 
@@ -46,7 +47,7 @@ fun SettingsScreen() {
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Press OK to change a setting.",
+            if (LocalIsTv.current) "Press OK to change a setting." else "Tap a setting to change it.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

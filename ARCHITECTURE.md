@@ -97,4 +97,10 @@ Stored in DataStore (`SettingsRepository`), with an always-loaded `current` copy
 
 Playlists can be edited (name, source, login, EPG URL). If the source changes, the channels are downloaded again before anything is saved; if the EPG URL changes or is removed, the guide is reloaded or cleared.
 
-Later: catch-up / timeshift, recording, multi-view, PiP, parental PIN, search, VOD / series.
+5. **Phone-friendly layout.** Layouts are designed for a 960×540 dp TV screen; shorter screens (phones in landscape) get a proportionally smaller density so the same layout fits. Touch devices get touch wording in hints and Back / Guide buttons in the player.
+6. **Search and parental PIN.** Search channels and upcoming programmes. A 4-digit PIN locks chosen groups: their channels are hidden everywhere (lists, guide, zapping, numbers, search) until unlocked for the session.
+7. **Movies and series (Xtream).** VOD and series catalogues by category, details pages, seasons and episodes, and a seekable player that remembers where you stopped.
+8. **Catch-up.** On channels the provider archives (Xtream `tv_archive`, or M3U `catchup` attributes), past programmes in the guide play from the archive.
+9. **Recording.** Record the channel you're watching or schedule programmes from the guide. A foreground service saves the stream to app storage; a Recordings screen plays and deletes them.
+
+Later: multi-view, picture-in-picture.

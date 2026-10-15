@@ -52,6 +52,7 @@ import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.epgKey
 import com.lumora.tv.data.repo.GroupSelection
 import com.lumora.tv.ui.common.ChannelLogo
+import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.rememberTimeFormat
 import com.lumora.tv.ui.common.requestFocusAfterLayout
@@ -279,7 +280,11 @@ private fun GuideDetails(
                 color = colors.primary,
             )
             Text(
-                "OK watch  ·  ◀ ▶ time  ·  ▲ ▼ channels  ·  0 now",
+                if (LocalIsTv.current) {
+                    "OK watch  ·  ◀ ▶ time  ·  ▲ ▼ channels  ·  0 now"
+                } else {
+                    "Tap a programme, tap again to watch  ·  drag to scroll"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
             )

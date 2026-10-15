@@ -73,6 +73,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
@@ -81,7 +85,9 @@ import com.lumora.tv.R
 import com.lumora.tv.data.repo.BufferProfile
 import com.lumora.tv.data.repo.VideoOutput
 import com.lumora.tv.data.repo.GroupSelection
+import com.lumora.tv.ui.common.Button
 import com.lumora.tv.ui.common.ChannelLogo
+import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.ProgressLine
 import com.lumora.tv.ui.common.rememberTimeFormat
 import com.lumora.tv.ui.common.span
@@ -98,6 +104,7 @@ fun PlayerScreen(
     channelId: Long,
     context: GroupSelection,
     onOpenGuide: (playlistId: Long, context: GroupSelection, channelId: Long) -> Unit,
+    onBack: () -> Unit,
 ) {
     val container = appContainer()
     val vm: PlayerViewModel = viewModel {
@@ -320,7 +327,11 @@ fun PlayerScreen(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "OK to retry  ·  ▲▼ to change channel  ·  Back to return",
+                    if (LocalIsTv.current) {
+                        "OK to retry  ·  ▲▼ to change channel  ·  Back to return"
+                    } else {
+                        "Tap to retry  ·  swipe up or down to change channel"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
@@ -334,6 +345,31 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             if (c != null) InfoOverlay(c, videoHeight, upcoming, now)
+        }
+
+        // Touch screens have no remote: offer Back and the TV guide on screen while the info shows.
+        if (!LocalIsTv.current) {
+            AnimatedVisibility(
+                visible = (overlayVisible || error != null) && c != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(24.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Back")
+                    }
+                    Button(onClick = { c?.let { onOpenGuide(it.playlistId, vm.context, it.id) } }) {
+                        Icon(Icons.Filled.CalendarViewWeek, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("TV guide")
+                    }
+                }
+            }
         }
 
         if (numberInput.isNotEmpty()) {
@@ -463,7 +499,11 @@ private fun InfoOverlay(channel: ChannelEntity, videoHeight: Int, upcoming: List
         }
         Spacer(Modifier.height(20.dp))
         Text(
-            "▲▼ change channel   ·   0–9 channel number   ·   0 previous channel   ·   Menu: TV guide",
+            if (LocalIsTv.current) {
+                "▲▼ change channel   ·   0–9 channel number   ·   0 previous channel   ·   Menu: TV guide"
+            } else {
+                "Swipe up or down to change channel   ·   tap to hide"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant,
         )

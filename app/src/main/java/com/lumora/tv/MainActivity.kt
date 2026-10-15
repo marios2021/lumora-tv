@@ -10,6 +10,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import com.lumora.tv.ui.LumoraNavHost
+import com.lumora.tv.ui.common.AdaptiveLayout
 import com.lumora.tv.ui.theme.LumoraTheme
 
 class MainActivity : ComponentActivity() {
@@ -17,12 +18,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             LumoraTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    shape = RectangleShape,
-                    colors = SurfaceDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                ) {
-                    LumoraNavHost()
+                AdaptiveLayout {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RectangleShape,
+                        colors = SurfaceDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                    ) {
+                        LumoraNavHost()
+                    }
                 }
             }
         }

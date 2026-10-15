@@ -64,6 +64,7 @@ import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.epgKey
 import com.lumora.tv.data.repo.GroupSelection
 import com.lumora.tv.ui.common.ChannelLogo
+import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.ProgressLine
 import com.lumora.tv.ui.common.rememberTimeFormat
 import com.lumora.tv.ui.common.span
@@ -315,7 +316,11 @@ private fun ChannelBrowser(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "OK to play  ·  hold OK to add or remove a favorite",
+                    if (LocalIsTv.current) {
+                        "OK to play  ·  hold OK to add or remove a favorite"
+                    } else {
+                        "Tap to play  ·  long-press to add or remove a favorite"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

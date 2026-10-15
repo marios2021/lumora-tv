@@ -127,6 +127,7 @@ fun LumoraNavHost() {
                 onOpenGuide = { playlistId, context, channelId ->
                     nav.navigate(Routes.guide(playlistId, context, channelId)) { popUpTo(Routes.HOME) }
                 },
+                onBack = { nav.popBackStack() },
             )
         }
     }
