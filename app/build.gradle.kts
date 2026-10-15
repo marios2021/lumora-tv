@@ -1,9 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+// Release signing reads keystore.properties at the project root (git-ignored; see
+// keystore.properties.example). Without it, release builds fall back to the debug key.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasReleaseKey = !keystoreProperties.getProperty("storeFile").isNullOrBlank()
 
 android {
     namespace = "com.lumora.tv"
@@ -17,13 +27,28 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key until a release keystore is set up.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("keystore.properties not found: signing the release build with the debug key.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
@@ -36,6 +61,11 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+// APKs are named after the app and version, e.g. LumoraTV-0.1.0-release.apk.
+base {
+    archivesName = "LumoraTV-${android.defaultConfig.versionName}"
 }
 
 ksp {
