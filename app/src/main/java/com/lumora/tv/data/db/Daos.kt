@@ -71,6 +71,12 @@ interface ChannelDao {
     )
     fun observeGroups(playlistId: Long): Flow<List<GroupCount>>
 
+    @Query(
+        "SELECT * FROM channels WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ESCAPE '\\' " +
+            "ORDER BY sortOrder LIMIT :limit",
+    )
+    suspend fun search(playlistId: Long, query: String, limit: Int): List<ChannelEntity>
+
     @Query("$CHANNEL_WITH_FAVORITE WHERE c.playlistId = :playlistId ORDER BY c.sortOrder")
     fun observeAll(playlistId: Long): Flow<List<ChannelItem>>
 
@@ -116,6 +122,12 @@ interface ProgramDao {
 
     @Query("SELECT * FROM programs WHERE playlistId = :playlistId AND stop > :from AND start < :to ORDER BY start")
     fun observeRange(playlistId: Long, from: Long, to: Long): Flow<List<ProgramEntity>>
+
+    @Query(
+        "SELECT * FROM programs WHERE playlistId = :playlistId AND stop > :now " +
+            "AND title LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY start LIMIT :limit",
+    )
+    suspend fun search(playlistId: Long, query: String, now: Long, limit: Int): List<ProgramEntity>
 
     @Query("SELECT COUNT(*) FROM programs WHERE playlistId = :playlistId")
     fun observeCount(playlistId: Long): Flow<Int>

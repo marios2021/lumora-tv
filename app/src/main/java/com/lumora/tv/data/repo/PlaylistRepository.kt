@@ -100,6 +100,10 @@ class PlaylistRepository(
         loaded.channels.size
     }
 
+    /** Channels whose name contains [query] (case-insensitive), in playlist order. */
+    suspend fun searchChannels(playlistId: Long, query: String, limit: Int = 100): List<ChannelEntity> =
+        channelDao.search(playlistId, likeEscape(query), limit)
+
     suspend fun get(id: Long): PlaylistEntity? = playlistDao.get(id)
 
     suspend fun all(): List<PlaylistEntity> = playlistDao.getAll()
@@ -193,3 +197,7 @@ class PlaylistRepository(
         }
     }
 }
+
+/** Escapes LIKE wildcards so a search for "100%" means exactly that. Queries use ESCAPE '\\'. */
+fun likeEscape(query: String): String =
+    query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

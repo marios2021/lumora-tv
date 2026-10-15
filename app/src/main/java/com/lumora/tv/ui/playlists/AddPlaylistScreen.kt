@@ -64,6 +64,7 @@ import androidx.tv.material3.Text
 import com.lumora.tv.data.db.PlaylistEntity
 import com.lumora.tv.data.db.PlaylistType
 import com.lumora.tv.data.remote.XtreamClient
+import com.lumora.tv.ui.common.FormField
 import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.requestFocusAfterLayout
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -306,60 +307,6 @@ private fun TypeButton(label: String, selected: Boolean, modifier: Modifier, onC
     ) {
         Text(label)
     }
-}
-
-@Composable
-private fun FormField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    isPassword: Boolean = false,
-    imeAction: ImeAction = ImeAction.Next,
-    modifier: Modifier = Modifier,
-) {
-    // TV behaviour: the D-pad moves between fields; OK starts editing and opens the keyboard.
-    // While not editing the field is read-only, so focusing it doesn't pop the keyboard up.
-    // On a touch screen a tap focuses the field, and that starts editing straight away.
-    val focusManager = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-    val inputMode = LocalInputModeManager.current
-    var editing by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { M3Text(label) },
-        singleLine = true,
-        readOnly = !editing,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction, autoCorrectEnabled = false),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        modifier = modifier
-            .fillMaxWidth()
-            .onFocusChanged {
-                when {
-                    !it.isFocused -> editing = false
-                    inputMode.inputMode == InputMode.Touch -> {
-                        editing = true
-                        keyboard?.show()
-                    }
-                }
-            }
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
-                    Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
-                    Key.DirectionLeft -> !editing && focusManager.moveFocus(FocusDirection.Left)
-                    Key.DirectionRight -> !editing && focusManager.moveFocus(FocusDirection.Right)
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        editing = true
-                        keyboard?.show()
-                        true
-                    }
-                    else -> false
-                }
-            },
-    )
 }
 
 private fun displayName(context: Context, uri: Uri): String? =

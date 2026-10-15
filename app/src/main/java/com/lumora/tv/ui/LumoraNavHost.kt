@@ -20,6 +20,7 @@ import com.lumora.tv.ui.home.HomeScreen
 import com.lumora.tv.ui.player.PlayerScreen
 import com.lumora.tv.ui.playlists.AddPlaylistScreen
 import com.lumora.tv.ui.playlists.PlaylistsScreen
+import com.lumora.tv.ui.search.SearchScreen
 import com.lumora.tv.ui.settings.SettingsScreen
 
 private object Routes {
@@ -31,9 +32,11 @@ private object Routes {
     const val SETTINGS = "settings"
     const val PLAYER = "player/{channelId}?context={context}"
     fun player(channelId: Long, context: GroupSelection) = "player/$channelId?context=" + Uri.encode(context.encode())
-    const val GUIDE = "guide/{playlistId}?context={context}&channel={channel}"
-    fun guide(playlistId: Long, context: GroupSelection, channelId: Long = -1) =
-        "guide/$playlistId?context=" + Uri.encode(context.encode()) + "&channel=$channelId"
+    const val GUIDE = "guide/{playlistId}?context={context}&channel={channel}&time={time}"
+    fun guide(playlistId: Long, context: GroupSelection, channelId: Long = -1, time: Long = -1) =
+        "guide/$playlistId?context=" + Uri.encode(context.encode()) + "&channel=$channelId&time=$time"
+    const val SEARCH = "search/{playlistId}"
+    fun search(playlistId: Long) = "search/$playlistId"
 }
 
 @Composable
@@ -59,6 +62,20 @@ fun LumoraNavHost() {
                 onAddPlaylist = { nav.navigate(Routes.ADD_PLAYLIST) },
                 onOpenGuide = { playlistId, context -> nav.navigate(Routes.guide(playlistId, context)) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenSearch = { nav.navigate(Routes.search(it)) },
+            )
+        }
+        composable(
+            Routes.SEARCH,
+            arguments = listOf(navArgument("playlistId") { type = NavType.LongType }),
+        ) { entry ->
+            val playlistId = entry.arguments?.getLong("playlistId") ?: 0L
+            SearchScreen(
+                playlistId = playlistId,
+                onPlay = { nav.navigate(Routes.player(it, GroupSelection.All)) },
+                onOpenGuide = { channelId, time ->
+                    nav.navigate(Routes.guide(playlistId, GroupSelection.All, channelId, time))
+                },
             )
         }
         composable(
@@ -73,6 +90,10 @@ fun LumoraNavHost() {
                     type = NavType.LongType
                     defaultValue = -1L
                 },
+                navArgument("time") {
+                    type = NavType.LongType
+                    defaultValue = -1L
+                },
             ),
         ) { entry ->
             val args = entry.arguments
@@ -80,6 +101,7 @@ fun LumoraNavHost() {
                 playlistId = args?.getLong("playlistId") ?: 0L,
                 context = GroupSelection.decode(args?.getString("context")),
                 startChannelId = args?.getLong("channel")?.takeIf { it > 0 },
+                startTime = args?.getLong("time")?.takeIf { it > 0 },
                 // Guide -> player always leaves home -> player on the stack, so Back returns to the list.
                 onPlay = { channelId, context ->
                     nav.navigate(Routes.player(channelId, context)) { popUpTo(Routes.HOME) }

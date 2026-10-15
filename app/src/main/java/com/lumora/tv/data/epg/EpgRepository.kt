@@ -1,5 +1,6 @@
 package com.lumora.tv.data.epg
 
+import com.lumora.tv.data.repo.likeEscape
 import android.content.Context
 import android.net.Uri
 import android.util.Xml
@@ -58,6 +59,10 @@ class EpgRepository(
         programDao.observeRange(playlistId, from, to).map { list -> list.groupBy { it.epgKey } }
 
     fun programCount(playlistId: Long): Flow<Int> = programDao.observeCount(playlistId)
+
+    /** Programmes not yet finished whose title contains [query], soonest first. */
+    suspend fun searchPrograms(playlistId: Long, query: String, now: Long, limit: Int = 60): List<ProgramEntity> =
+        programDao.search(playlistId, likeEscape(query), now, limit)
 
     /** Starts a refresh unless one is already running for this playlist. */
     fun refreshInBackground(playlistId: Long) {

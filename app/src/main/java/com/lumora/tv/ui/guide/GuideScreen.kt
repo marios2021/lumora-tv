@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +62,7 @@ import com.lumora.tv.ui.common.touchClick
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.SLOT_MS
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.WINDOW_MS
 import com.lumora.tv.ui.guide.GuideViewModel.Companion.floorSlot
+import kotlinx.coroutines.flow.first
 import java.text.DateFormat
 import java.util.concurrent.TimeUnit
 
@@ -74,10 +76,11 @@ fun GuideScreen(
     context: GroupSelection,
     startChannelId: Long?,
     onPlay: (channelId: Long, context: GroupSelection) -> Unit,
+    startTime: Long? = null,
 ) {
     val container = appContainer()
     val vm: GuideViewModel = viewModel {
-        GuideViewModel(container.playlists, container.settings, container.epg, playlistId, context, startChannelId)
+        GuideViewModel(container.playlists, container.settings, container.epg, playlistId, context, startChannelId, startTime)
     }
     val channels by vm.channels.collectAsStateWithLifecycle()
     val cursor by vm.cursor.collectAsStateWithLifecycle()
@@ -95,6 +98,8 @@ fun GuideScreen(
     // Keep the selected row on screen.
     LaunchedEffect(cursor.row, channels?.size) {
         val row = cursor.row
+        // Opening at a channel far down: wait until the grid has laid out its rows.
+        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > row }
         val info = listState.layoutInfo
         val visible = info.visibleItemsInfo
         if (visible.isEmpty()) {

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.Star
@@ -82,6 +83,7 @@ fun HomeScreen(
     onAddPlaylist: () -> Unit,
     onOpenGuide: (playlistId: Long, context: GroupSelection) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearch: (playlistId: Long) -> Unit,
 ) {
     val container = appContainer()
     val vm: HomeViewModel = viewModel { HomeViewModel(container.playlists, container.settings, container.epg) }
@@ -104,6 +106,10 @@ fun HomeScreen(
                 onOpenGuide(s.playlist.id, vm.selection.value)
             },
             onOpenSettings = onOpenSettings,
+            onOpenSearch = {
+                vm.returningFromPlayer = true
+                onOpenSearch(s.playlist.id)
+            },
         )
     }
 }
@@ -142,6 +148,7 @@ private fun ChannelBrowser(
     onOpenPlaylists: () -> Unit,
     onOpenGuide: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearch: () -> Unit,
 ) {
     val selection by vm.selection.collectAsStateWithLifecycle()
     val airing by vm.airing.collectAsStateWithLifecycle()
@@ -232,6 +239,9 @@ private fun ChannelBrowser(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    IconButton(onClick = onOpenSearch) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")

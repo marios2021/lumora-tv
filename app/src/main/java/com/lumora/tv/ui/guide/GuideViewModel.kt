@@ -32,6 +32,7 @@ class GuideViewModel(
     private val playlistId: Long,
     requestedContext: GroupSelection,
     private val startChannelId: Long?,
+    private val startTime: Long? = null,
 ) : ViewModel() {
 
     /** The group shown. Falls back to All channels when the requested one is empty. */
@@ -67,7 +68,9 @@ class GuideViewModel(
             _channels.value = list
             val focusId = startChannelId ?: repo.channel(settings.lastChannel.first())?.id
             val row = list.indexOfFirst { it.id == focusId }.coerceAtLeast(0)
-            _cursor.value = GuideCursor(row, System.currentTimeMillis())
+            val time = startTime ?: System.currentTimeMillis()
+            _windowStart.value = floorSlot(time)
+            _cursor.value = GuideCursor(row, time)
         }
     }
 
