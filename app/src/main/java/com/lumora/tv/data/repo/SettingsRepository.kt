@@ -32,6 +32,17 @@ enum class BufferProfile(val label: String) {
     SMOOTH("Smooth playback"),
 }
 
+/**
+ * How video reaches the screen. SurfaceView is the most efficient (and the only option for some
+ * HDR / 4K paths); TextureView draws inside the app window, which avoids a black picture with
+ * sound on some older phones and tablets.
+ */
+enum class VideoOutput(val label: String) {
+    AUTO("Automatic"),
+    SURFACE_VIEW("Standard (SurfaceView)"),
+    TEXTURE_VIEW("Compatibility (TextureView)"),
+}
+
 data class LastChannel(val playlistId: Long, val channelKey: String)
 
 data class AppSettings(
@@ -42,6 +53,7 @@ data class AppSettings(
     /** Hours between automatic playlist and TV guide refreshes; 0 turns it off. */
     val autoRefreshHours: Int = 12,
     val startOnLastChannel: Boolean = false,
+    val videoOutput: VideoOutput = VideoOutput.AUTO,
 ) {
     companion object {
         val AUTO_REFRESH_CHOICES = listOf(0, 6, 12, 24, 48)
@@ -63,6 +75,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             p[BUFFER_PROFILE] = new.bufferProfile.name
             p[AUTO_REFRESH_HOURS] = new.autoRefreshHours
             p[START_ON_LAST_CHANNEL] = new.startOnLastChannel
+            p[VIDEO_OUTPUT] = new.videoOutput.name
         }
     }
 
@@ -99,6 +112,8 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             ?: BufferProfile.BALANCED,
         autoRefreshHours = this[AUTO_REFRESH_HOURS] ?: 12,
         startOnLastChannel = this[START_ON_LAST_CHANNEL] ?: false,
+        videoOutput = this[VIDEO_OUTPUT]?.let { runCatching { VideoOutput.valueOf(it) }.getOrNull() }
+            ?: VideoOutput.AUTO,
     )
 
     private companion object {
@@ -110,5 +125,6 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val BUFFER_PROFILE = stringPreferencesKey("buffer_profile")
         val AUTO_REFRESH_HOURS = intPreferencesKey("auto_refresh_hours")
         val START_ON_LAST_CHANNEL = booleanPreferencesKey("start_on_last_channel")
+        val VIDEO_OUTPUT = stringPreferencesKey("video_output")
     }
 }

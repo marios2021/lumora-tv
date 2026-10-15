@@ -29,6 +29,8 @@ class SettingsViewModel(
 
     fun cycleBufferProfile() = change { it.copy(bufferProfile = it.bufferProfile.next()) }
 
+    fun cycleVideoOutput() = change { it.copy(videoOutput = it.videoOutput.next()) }
+
     fun cycleAutoRefresh() = change {
         val choices = AppSettings.AUTO_REFRESH_CHOICES
         it.copy(autoRefreshHours = choices[(choices.indexOf(it.autoRefreshHours) + 1).mod(choices.size)])

@@ -76,6 +76,15 @@ fun SettingsScreen() {
             }
             item {
                 SettingRow(
+                    title = "Video output",
+                    description = "If you hear sound but the picture stays black, try Compatibility. " +
+                        "Automatic uses Compatibility on phones and tablets and Standard on TVs.",
+                    value = settings.videoOutput.label,
+                    onClick = vm::cycleVideoOutput,
+                )
+            }
+            item {
+                SettingRow(
                     title = "Xtream Codes stream format",
                     description = "Try HLS if live channels stutter or won't start.",
                     value = settings.xtreamFormat.label,

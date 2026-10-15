@@ -3,6 +3,10 @@ package com.lumora.tv.ui.player
 import android.graphics.Color as AndroidColor
 import android.text.format.DateFormat
 import android.view.KeyEvent as AndroidKeyEvent
+import android.app.UiModeManager
+import android.content.Context
+import android.content.res.Configuration
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -63,6 +67,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -72,7 +77,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.ProgramEntity
+import com.lumora.tv.R
 import com.lumora.tv.data.repo.BufferProfile
+import com.lumora.tv.data.repo.VideoOutput
 import com.lumora.tv.data.repo.GroupSelection
 import com.lumora.tv.ui.common.ChannelLogo
 import com.lumora.tv.ui.common.ProgressLine
@@ -109,7 +116,9 @@ fun PlayerScreen(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
-        ExoPlayer.Builder(androidContext)
+        // If the device's preferred video decoder fails to start, try the next one instead of failing.
+        val renderers = DefaultRenderersFactory(androidContext).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(androidContext, renderers)
             .setLoadControl(loadControlFor(container.settings.current.value.bufferProfile))
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(OkHttpDataSource.Factory(streamHttp))
@@ -241,9 +250,15 @@ fun PlayerScreen(
             .focusRequester(focus)
             .focusable(),
     ) {
+        val useTextureView = remember { useTextureView(androidContext, container.settings.current.value.videoOutput) }
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                val view = if (useTextureView) {
+                    LayoutInflater.from(ctx).inflate(R.layout.player_view_texture, null) as PlayerView
+                } else {
+                    PlayerView(ctx)
+                }
+                view.apply {
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     keepScreenOn = true
@@ -472,6 +487,16 @@ private val OK_KEYS = setOf(
     AndroidKeyEvent.KEYCODE_ENTER,
     AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
 )
+
+/** Automatic: TextureView on phones and tablets (avoids black video on some), SurfaceView on TVs. */
+private fun useTextureView(context: Context, output: VideoOutput): Boolean = when (output) {
+    VideoOutput.TEXTURE_VIEW -> true
+    VideoOutput.SURFACE_VIEW -> false
+    VideoOutput.AUTO -> {
+        val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+        uiMode.currentModeType != Configuration.UI_MODE_TYPE_TELEVISION
+    }
+}
 
 @OptIn(UnstableApi::class)
 private fun loadControlFor(profile: BufferProfile): DefaultLoadControl {
