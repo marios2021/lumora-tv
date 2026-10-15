@@ -170,7 +170,7 @@ class PlayerViewModel(
 
     private fun ChannelEntity.key() = LastChannel(playlistId, channelKey)
 
-    private fun showNotice(text: String) {
+    fun showNotice(text: String) {
         _notice.value = text
         noticeJob?.cancel()
         noticeJob = viewModelScope.launch {

@@ -35,6 +35,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,8 +60,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -76,6 +75,10 @@ import androidx.media3.ui.PlayerView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -87,6 +90,7 @@ import com.lumora.tv.data.repo.VideoOutput
 import com.lumora.tv.data.repo.GroupSelection
 import com.lumora.tv.ui.common.Button
 import com.lumora.tv.ui.common.ChannelLogo
+import com.lumora.tv.ui.common.IconButton
 import com.lumora.tv.ui.common.LocalIsTv
 import com.lumora.tv.ui.common.ProgressLine
 import com.lumora.tv.ui.common.rememberTimeFormat
@@ -117,12 +121,14 @@ fun PlayerScreen(
     val notice by vm.notice.collectAsStateWithLifecycle()
     val androidContext = LocalContext.current
 
-    val player = remember {
-        // Dead streams are common in IPTV lists: give up quickly so the error shows, instead of spinning.
-        val streamHttp = container.http.newBuilder()
+    // Dead streams are common in IPTV lists: give up quickly so the error shows, instead of spinning.
+    val streamHttp = remember {
+        container.http.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
+    }
+    val player = remember {
         // If the device's preferred video decoder fails to start, try the next one instead of failing.
         val renderers = DefaultRenderersFactory(androidContext).setEnableDecoderFallback(true)
         ExoPlayer.Builder(androidContext, renderers)
@@ -133,16 +139,36 @@ fun PlayerScreen(
             )
             .build()
     }
+    val live = remember { LivePlayback(player, streamHttp) }
     // Declared first so it is disposed last, after the effects below that still touch the player.
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) {
+        onDispose {
+            live.stop()
+            player.release()
+        }
+    }
 
     var error by remember { mutableStateOf<PlaybackException?>(null) }
     var buffering by remember { mutableStateOf(true) }
     var videoHeight by remember { mutableIntStateOf(0) }
+    var paused by remember { mutableStateOf(false) }
+    var behind by remember { mutableLongStateOf(0L) }
+    var canRewind by remember { mutableStateOf(false) }
+    LaunchedEffect(live) {
+        while (true) {
+            behind = live.behindMs()
+            canRewind = live.canRewind
+            delay(500)
+        }
+    }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(e: PlaybackException) {
-                error = e
+                if (!live.recover(e)) error = e
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                paused = !playWhenReady
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -161,19 +187,14 @@ fun PlayerScreen(
     fun startPlayback(c: ChannelEntity) {
         error = null
         videoHeight = 0
-        player.setMediaItem(mediaItemFor(vm.playableUrl(c)))
-        player.prepare()
-        player.playWhenReady = true
+        behind = 0
+        live.play(vm.playableUrl(c))
     }
 
     // Live TV: stop when the app is backgrounded, then rejoin at the live edge when it comes back.
     LifecycleStartEffect(player) {
-        if (player.mediaItemCount > 0) {
-            player.seekToDefaultPosition()
-            player.prepare()
-            player.playWhenReady = true
-        }
-        onStopOrDispose { player.stop() }
+        if (player.mediaItemCount > 0) live.restart()
+        onStopOrDispose { live.stop() }
     }
 
     // Info overlay: shown on every channel change and on OK, hidden again after a few seconds.
@@ -215,6 +236,19 @@ fun PlayerScreen(
         }
     }
 
+    fun rewind() {
+        when {
+            !live.canRewind -> vm.showNotice("Rewind isn't available on this channel")
+            !live.seekBy(-REWIND_STEP_MS) -> vm.showNotice("Can't go back further")
+        }
+        behind = live.behindMs()
+    }
+
+    fun forward() {
+        if (live.atLive) vm.showNotice("You're watching live") else live.seekBy(REWIND_STEP_MS)
+        behind = live.behindMs()
+    }
+
     fun handleKey(event: KeyEvent): Boolean {
         val code = event.key.nativeKeyCode
         if (event.type == KeyEventType.KeyDown) {
@@ -230,6 +264,14 @@ fun PlayerScreen(
                 AndroidKeyEvent.KEYCODE_CHANNEL_DOWN,
                 AndroidKeyEvent.KEYCODE_PAGE_DOWN -> vm.zap(-1)
                 AndroidKeyEvent.KEYCODE_LAST_CHANNEL -> vm.recallPrevious()
+                AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> rewind()
+                AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+                AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> forward()
+                AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                AndroidKeyEvent.KEYCODE_SPACE -> live.togglePause()
+                AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> if (!paused) live.togglePause()
+                AndroidKeyEvent.KEYCODE_MEDIA_PLAY -> if (paused) live.togglePause()
                 AndroidKeyEvent.KEYCODE_INFO -> if (overlayVisible) overlayVisible = false else showOverlay()
                 // Many Android TV builds reserve the Guide key for the system TV app, so Menu opens it too.
                 AndroidKeyEvent.KEYCODE_GUIDE,
@@ -344,7 +386,7 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            if (c != null) InfoOverlay(c, videoHeight, upcoming, now)
+            if (c != null) InfoOverlay(c, videoHeight, upcoming, now, behind, paused)
         }
 
         // Touch screens have no remote: offer Back and the TV guide on screen while the info shows.
@@ -368,20 +410,58 @@ fun PlayerScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("TV guide")
                     }
+                    if (canRewind) {
+                        Spacer(Modifier.width(24.dp))
+                        IconButton(onClick = ::rewind) { Icon(Icons.Filled.Replay10, contentDescription = "Back 10 seconds") }
+                        IconButton(onClick = { live.togglePause() }) {
+                            Icon(
+                                if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                contentDescription = if (paused) "Play" else "Pause",
+                            )
+                        }
+                        IconButton(onClick = ::forward) { Icon(Icons.Filled.Forward10, contentDescription = "Forward 10 seconds") }
+                        if (behind >= 1_000 || paused) {
+                            Button(onClick = {
+                                live.goLive()
+                                behind = 0
+                            }) { Text("Live") }
+                        }
+                    }
                 }
             }
         }
 
-        if (numberInput.isNotEmpty()) {
-            Text(
-                numberInput,
-                style = MaterialTheme.typography.displayMedium,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(40.dp)
-                    .background(Color(0xCC0D0F16), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 28.dp, vertical = 12.dp),
-            )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(40.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (numberInput.isNotEmpty()) {
+                Text(
+                    numberInput,
+                    style = MaterialTheme.typography.displayMedium,
+                    modifier = Modifier
+                        .background(Color(0xCC0D0F16), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 28.dp, vertical = 12.dp),
+                )
+            }
+            // While paused or rewound, always show how far behind live this is.
+            if (paused || behind >= 1_000) {
+                val isTv = LocalIsTv.current
+                Text(
+                    when {
+                        paused -> "❚❚  Paused  " + behindLabel(behind)
+                        isTv -> behindLabel(behind) + "  ·  ▶ to catch up"
+                        else -> behindLabel(behind) + " behind live"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .background(Color(0xCC0D0F16), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                )
+            }
         }
 
         notice?.let {
@@ -399,7 +479,14 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun InfoOverlay(channel: ChannelEntity, videoHeight: Int, upcoming: List<ProgramEntity>, now: Long) {
+private fun InfoOverlay(
+    channel: ChannelEntity,
+    videoHeight: Int,
+    upcoming: List<ProgramEntity>,
+    now: Long,
+    behind: Long,
+    paused: Boolean,
+) {
     val context = LocalContext.current
     val timeFormat = rememberTimeFormat()
     val current = upcoming.firstOrNull()?.takeIf { it.start <= now }
@@ -432,7 +519,11 @@ private fun InfoOverlay(channel: ChannelEntity, videoHeight: Int, upcoming: List
                 }
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Tag("LIVE", background = colors.error)
+                    when {
+                        paused -> Tag("PAUSED", background = colors.surfaceVariant)
+                        behind >= 1_000 -> Tag(behindLabel(behind), background = colors.surfaceVariant)
+                        else -> Tag("LIVE", background = colors.error)
+                    }
                     qualityLabel(videoHeight)?.let { Tag(it, background = colors.surfaceVariant) }
                     Text(
                         channel.groupTitle,
@@ -500,7 +591,7 @@ private fun InfoOverlay(channel: ChannelEntity, videoHeight: Int, upcoming: List
         Spacer(Modifier.height(20.dp))
         Text(
             if (LocalIsTv.current) {
-                "▲▼ change channel   ·   0–9 channel number   ·   0 previous channel   ·   Menu: TV guide"
+                "▲▼ channel   ·   ◀▶ rewind / forward   ·   0–9 number   ·   0 previous   ·   Menu: TV guide"
             } else {
                 "Swipe up or down to change channel   ·   tap to hide"
             },
@@ -551,7 +642,11 @@ private fun loadControlFor(profile: BufferProfile): DefaultLoadControl {
         )
         BufferProfile.SMOOTH -> listOf(30_000, 90_000, 4_000, 8_000)
     }
-    return DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, resume).build()
+    return DefaultLoadControl.Builder()
+        .setBufferDurationsMs(min, max, start, resume)
+        // Keep what was just played, so rewinding an HLS stream is instant.
+        .setBackBuffer((MAX_REWIND_MS + 5_000).toInt(), true)
+        .build()
 }
 
 private fun digitFor(keyCode: Int): Int? = when (keyCode) {
@@ -566,16 +661,6 @@ private fun qualityLabel(height: Int): String? = when {
     height >= 1000 -> "FHD"
     height >= 700 -> "HD"
     else -> "SD"
-}
-
-private fun mediaItemFor(url: String): MediaItem {
-    val builder = MediaItem.Builder().setUri(url)
-    val lower = url.lowercase()
-    when {
-        ".m3u8" in lower -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-        ".mpd" in lower -> builder.setMimeType(MimeTypes.APPLICATION_MPD)
-    }
-    return builder.build()
 }
 
 private fun describe(e: PlaybackException): String = when (e.errorCode) {

@@ -77,6 +77,7 @@ Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   - OK or Info toggles the info overlay; it also appears for 5 s on every channel change.
   - Back closes the overlay first, then leaves the player. The list re-focuses the last channel watched.
   - Menu (or Guide, where the system doesn't reserve it) opens the TV guide on the current channel.
+  - ◀ / Rewind goes back 10 s (up to 30 s), ▶ / Fast-forward goes forward again and rejoins live; Play/Pause pauses live TV. A badge shows how far behind live you are.
 - In the TV guide: ▲▼ channels, ◀▶ previous/next programme, CH+/CH- page, 0 jumps to now, OK watches the selected channel. It shows the group you opened it from, or All channels if that group is empty.
 
 ## Milestones
@@ -98,9 +99,18 @@ Stored in DataStore (`SettingsRepository`), with an always-loaded `current` copy
 Playlists can be edited (name, source, login, EPG URL). If the source changes, the channels are downloaded again before anything is saved; if the EPG URL changes or is removed, the guide is reloaded or cleared.
 
 5. **Phone-friendly layout.** Layouts are designed for a 960×540 dp TV screen; shorter screens (phones in landscape) get a proportionally smaller density so the same layout fits. Touch devices get touch wording in hints and Back / Guide buttons in the player.
-6. **Search and parental PIN.** Search channels and upcoming programmes. A 4-digit PIN locks chosen groups: their channels are hidden everywhere (lists, guide, zapping, numbers, search) until unlocked for the session.
-7. **Movies and series (Xtream).** VOD and series catalogues by category, details pages, seasons and episodes, and a seekable player that remembers where you stopped.
-8. **Catch-up.** On channels the provider archives (Xtream `tv_archive`, or M3U `catchup` attributes), past programmes in the guide play from the archive.
-9. **Recording.** Record the channel you're watching or schedule programmes from the guide. A foreground service saves the stream to app storage; a Recordings screen plays and deletes them.
+6. **Live rewind.** Go back up to 30 s on a live channel, pause, and catch up again (see below).
+7. **Search and parental PIN.** Search channels and upcoming programmes. A 4-digit PIN locks chosen groups: their channels are hidden everywhere (lists, guide, zapping, numbers, search) until unlocked for the session.
+8. **Movies and series (Xtream).** VOD and series catalogues by category, details pages, seasons and episodes, and a seekable player that remembers where you stopped.
+9. **Catch-up.** On channels the provider archives (Xtream `tv_archive`, or M3U `catchup` attributes), past programmes in the guide play from the archive.
+10. **Recording.** Record the channel you're watching or schedule programmes from the guide. A foreground service saves the stream to app storage; a Recordings screen plays and deletes them.
+
+### Live rewind (milestone 6)
+
+`LivePlayback` (in `ui/player/Timeshift.kt`) sits between the player screen and ExoPlayer:
+
+- **HLS / DASH** already offer a window of recent segments, so rewinding seeks inside it. The load control keeps 35 s of back buffer, so going back is instant.
+- **Plain HTTP streams** (MPEG-TS, the IPTV norm) can't seek. A background thread reads the stream into a 32 MB in-memory ring buffer (`TimeshiftBuffer`, about 30 s at 8 Mbit/s), noting when each part arrived, and ExoPlayer plays from that buffer. Rewinding restarts playback from an earlier TS packet in the buffer, so the server sees only one connection (important for Xtream accounts with a connection limit).
+- "Behind live" is measured against the delay while watching live, so the badge shows 0 at live and counts up while paused.
 
 Later: multi-view, picture-in-picture.
