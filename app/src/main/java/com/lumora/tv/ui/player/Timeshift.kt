@@ -14,9 +14,9 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
-import okhttp3.Call
+import com.lumora.tv.data.recording.HttpStatusException
+import com.lumora.tv.data.recording.StreamHub
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.nio.ByteBuffer
@@ -40,12 +40,13 @@ private const val TS_SYNC: Byte = 0x47
  * HLS and DASH streams already offer a window of recent segments, so they are rewound by seeking
  * inside it. Plain HTTP streams (MPEG-TS, the IPTV norm) can't seek: they are read by a background
  * thread into a [TimeshiftBuffer] and played from there, and rewinding restarts playback from an
- * earlier point in that buffer, without reconnecting to the server.
+ * earlier point in that buffer, without reconnecting to the server. That connection comes from
+ * [hub], so a recording of the same channel shares it.
  *
  * Positions are measured as "behind live": 0 while watching live, more after a rewind or a pause.
  */
 @OptIn(UnstableApi::class)
-class LivePlayback(private val player: ExoPlayer, private val http: OkHttpClient) {
+class LivePlayback(private val player: ExoPlayer, private val http: OkHttpClient, private val hub: StreamHub) {
     private var buffer: TimeshiftBuffer? = null
     private var writer: TimeshiftWriter? = null
     private var generation = 0
@@ -79,7 +80,7 @@ class LivePlayback(private val player: ExoPlayer, private val http: OkHttpClient
         if (item.localConfiguration?.mimeType == null && url.startsWith("http", ignoreCase = true)) {
             val b = buffer ?: TimeshiftBuffer(BUFFER_BYTES).also { buffer = it }
             generation = b.reset()
-            writer = TimeshiftWriter(http, url, b, generation).also { it.start() }
+            writer = TimeshiftWriter(hub, http, url, b, generation)
             playFromBuffer(0)
         } else {
             player.setMediaItem(item)
@@ -348,56 +349,39 @@ class TimeshiftBuffer(private val capacity: Int) {
     private fun byteAt(pos: Long): Byte = data.get((pos % capacity).toInt())
 }
 
-/** Reads the stream from the network into a [TimeshiftBuffer] until closed. */
+/** Reads the stream from the network (through the shared [StreamHub] connection) into a [TimeshiftBuffer] until closed. */
 @OptIn(UnstableApi::class)
 private class TimeshiftWriter(
+    hub: StreamHub,
     http: OkHttpClient,
-    private val url: String,
+    url: String,
     private val buffer: TimeshiftBuffer,
     private val gen: Int,
-) : Thread("Lumora-timeshift") {
+) : StreamHub.Reader {
     private val dataSpec = DataSpec(Uri.parse(url))
-    private val call: Call? = runCatching { http.newCall(Request.Builder().url(url).build()) }.getOrNull()
+    private val attachment = hub.attach(url, http, this)
 
-    init {
-        isDaemon = true
+    override fun onData(bytes: ByteArray, length: Int) {
+        buffer.write(gen, bytes, length)
     }
 
-    override fun run() {
-        if (call == null) {
-            buffer.fail(gen, IOException("Not a valid stream address"))
-            return
-        }
-        try {
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw HttpDataSource.InvalidResponseCodeException(
-                        response.code, response.message, null, response.headers.toMultimap(), dataSpec, ByteArray(0),
-                    )
-                }
-                val input = response.body?.byteStream() ?: throw IOException("Empty response")
-                val chunk = ByteArray(64 * 1024)
-                while (true) {
-                    val n = input.read(chunk)
-                    if (n < 0) {
-                        buffer.finish(gen)
-                        break
-                    }
-                    if (n > 0 && !buffer.write(gen, chunk, n)) break
-                }
-            }
-        } catch (e: HttpDataSource.HttpDataSourceException) {
-            buffer.fail(gen, e)
-        } catch (e: IOException) {
-            if (!call.isCanceled()) {
-                buffer.fail(gen, HttpDataSource.HttpDataSourceException.createForIOException(e, dataSpec, HttpDataSource.HttpDataSourceException.TYPE_READ))
-            }
+    override fun onEnd(error: IOException?) {
+        when (error) {
+            null -> buffer.finish(gen)
+            is HttpStatusException -> buffer.fail(
+                gen,
+                HttpDataSource.InvalidResponseCodeException(
+                    error.code, error.reason, null, error.headers.toMultimap(), dataSpec, ByteArray(0),
+                ),
+            )
+            else -> buffer.fail(
+                gen,
+                HttpDataSource.HttpDataSourceException.createForIOException(error, dataSpec, HttpDataSource.HttpDataSourceException.TYPE_READ),
+            )
         }
     }
 
-    fun close() {
-        call?.cancel()
-    }
+    fun close() = attachment.close()
 }
 
 /** Plays a [TimeshiftBuffer] from [startPos]: ExoPlayer sees an endless progressive stream. */

@@ -5,6 +5,7 @@ import com.lumora.tv.data.db.LumoraDatabase
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.remote.XtreamClient
 import com.lumora.tv.data.recording.RecordingRepository
+import com.lumora.tv.data.recording.StreamHub
 import com.lumora.tv.data.repo.AutoRefresher
 import com.lumora.tv.data.repo.ParentalControl
 import com.lumora.tv.data.repo.PlaylistRepository
@@ -47,6 +48,9 @@ class AppContainer(context: Context) {
     val epg = EpgRepository(appContext, database, http, appScope)
     val autoRefresher = AutoRefresher(playlists, epg, settings, appScope)
     val recordings = RecordingRepository(appContext, database)
+
+    /** Live stream connections, shared by the player and recordings of the same channel. */
+    val streamHub = StreamHub()
 
     companion object {
         const val USER_AGENT = "LumoraTV/0.1 (Linux; Android TV)"

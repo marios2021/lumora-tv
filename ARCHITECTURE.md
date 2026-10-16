@@ -172,6 +172,7 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - Scheduled recordings are started by exact alarms (`USE_EXACT_ALARM` on Android 13+, `SCHEDULE_EXACT_ALARM` before), which also lets the service start while the app is in the background. Alarms are set again after a reboot or app update; recordings cut off by a restart keep what was saved.
 - `Recorder` copies plain HTTP streams byte for byte (reconnecting if the stream drops) and records HLS by polling the media playlist and appending each new TS segment. Encrypted or fMP4 HLS can't be recorded.
 - Files are MPEG-TS in the app's storage (`Android/data/com.lumora.tv/files/Recordings`, no storage permission). The Recordings screen plays, stops, cancels and deletes them; playback uses the seekable player.
-- Recording uses its own connection to the provider. Accounts limited to one connection can't record one channel while watching another.
+- Live MPEG-TS streams go through `StreamHub`, which keeps one connection per stream URL for everyone reading it. Recording the channel you're watching therefore shares the player's connection, and the player joins a recording's connection when you tune to a channel being recorded. IPTV accounts often allow one connection, and a second one gets the provider's "connection limit reached" clip, which a recording would otherwise save.
+- Recording one channel while watching another still needs two connections; the player warns about it when you tune away from a channel being recorded. HLS streams (Xtream format set to HLS) don't go through the hub.
 
 Later: multi-view, picture-in-picture.

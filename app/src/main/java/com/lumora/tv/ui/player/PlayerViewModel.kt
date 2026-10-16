@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.RecordingEntity
+import com.lumora.tv.data.db.RecordingStatus
 import com.lumora.tv.data.recording.RecordingRepository
 import com.lumora.tv.data.db.ProgramEntity
 import com.lumora.tv.data.epg.EpgRepository
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -181,15 +183,25 @@ class PlayerViewModel(
         if (rememberPrevious && current != null && current.channelKey != target.channelKey) previousChannel = current.key()
         _channel.value = target
         settings.setLastChannel(target)
+        // Recording the channel being watched shares one connection; another channel needs a second.
+        val elsewhere = recordings.active.first().firstOrNull {
+            it.status == RecordingStatus.RECORDING && it.playlistId == target.playlistId && it.channelKey != target.channelKey
+        }
+        if (elsewhere != null) {
+            showNotice(
+                "Recording “${elsewhere.channelName}”: if your account allows one connection, watch that channel until it ends",
+                LONG_NOTICE_MS,
+            )
+        }
     }
 
     private fun ChannelEntity.key() = LastChannel(playlistId, channelKey)
 
-    fun showNotice(text: String) {
+    fun showNotice(text: String, durationMs: Long = NOTICE_MS) {
         _notice.value = text
         noticeJob?.cancel()
         noticeJob = viewModelScope.launch {
-            delay(NOTICE_MS)
+            delay(durationMs)
             _notice.value = null
         }
     }
@@ -197,5 +209,6 @@ class PlayerViewModel(
     private companion object {
         const val NUMBER_ENTRY_TIMEOUT_MS = 1_500L
         const val NOTICE_MS = 2_500L
+        const val LONG_NOTICE_MS = 6_000L
     }
 }

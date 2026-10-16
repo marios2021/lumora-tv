@@ -150,7 +150,7 @@ fun PlayerScreen(
             )
             .build()
     }
-    val live = remember { LivePlayback(player, streamHttp) }
+    val live = remember { LivePlayback(player, streamHttp, container.streamHub) }
     // Declared first so it is disposed last, after the effects below that still touch the player.
     DisposableEffect(player) {
         onDispose {

@@ -1,10 +1,11 @@
 package com.lumora.tv.data.recording
 
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -15,10 +16,11 @@ import kotlin.coroutines.coroutineContext
 
 /**
  * Saves a live stream to a file until a given time. Plain HTTP streams (MPEG-TS) are copied byte
- * for byte and reconnected if they drop; HLS is recorded by polling the media playlist and
+ * for byte and reconnected if they drop; they go through [hub], so recording the channel being
+ * watched shares the player's connection. HLS is recorded by polling the media playlist and
  * appending each new TS segment. Encrypted or fMP4 HLS can't be recorded this way.
  */
-class Recorder(private val http: OkHttpClient) {
+class Recorder(private val http: OkHttpClient, private val hub: StreamHub = StreamHub()) {
 
     /** Records [url] into [sink] until [endAt] (epoch ms) or cancellation. [onBytes] gets the running total. */
     suspend fun record(url: String, sink: OutputStream, endAt: Long, onBytes: (Long) -> Unit): Long {
@@ -49,36 +51,35 @@ class Recorder(private val http: OkHttpClient) {
         }
     }
 
-    /** Copies one connection's worth of data; returns when it ends or [endAt] passes. */
-    private suspend fun copyUntil(url: String, sink: OutputStream, endAt: Long, counted: (Int) -> Unit) = coroutineScope {
-        val call = http.newCall(Request.Builder().url(url).build())
-        // Cancelling the call unblocks a read: at the end time, or when the recording is stopped.
-        val watcher = launch {
-            try {
-                delay((endAt - System.currentTimeMillis()).coerceAtLeast(0))
-            } finally {
-                call.cancel()
-            }
-        }
-        try {
-            withContext(Dispatchers.IO) {
-                call.execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("Server returned HTTP ${response.code}.")
-                    val input = response.body?.byteStream() ?: throw IOException("Empty response.")
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        ensureActive()
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        sink.write(buffer, 0, n)
-                        counted(n)
-                    }
+    /**
+     * Copies the stream until it ends or [endAt] passes. Shares the connection with the player
+     * when it is watching the same stream, so the account's connection limit isn't hit.
+     */
+    private suspend fun copyUntil(url: String, sink: OutputStream, endAt: Long, counted: (Int) -> Unit) {
+        val end = CompletableDeferred<IOException?>()
+        // Data arrives on the connection's thread; sink errors end this attachment.
+        val reader = object : StreamHub.Reader {
+            override fun onData(bytes: ByteArray, length: Int) {
+                if (end.isCompleted) return
+                try {
+                    sink.write(bytes, 0, length)
+                    counted(length)
+                } catch (e: IOException) {
+                    end.complete(e)
                 }
             }
-        } catch (e: IOException) {
-            if (System.currentTimeMillis() < endAt) throw e
+
+            override fun onEnd(error: IOException?) {
+                end.complete(error)
+            }
+        }
+        val attachment = hub.attach(url, http, reader)
+        try {
+            val error = withTimeoutOrNull((endAt - System.currentTimeMillis()).coerceAtLeast(1)) { end.await() }
+            if (error != null && System.currentTimeMillis() < endAt) throw error
         } finally {
-            watcher.cancel()
+            // Stops delivery before the caller touches the sink again (or closes it).
+            withContext(NonCancellable + Dispatchers.IO) { attachment.close() }
         }
     }
 

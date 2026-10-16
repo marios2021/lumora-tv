@@ -71,7 +71,7 @@ class RecordingService : Service() {
         var lastSaved = 0L
         try {
             file.outputStream().buffered().use { out ->
-                Recorder(container.http).record(r.url, out, r.endAt) { bytes ->
+                Recorder(container.http, container.streamHub).record(r.url, out, r.endAt) { bytes ->
                     // Save the size now and then so the Recordings screen shows progress.
                     if (bytes - lastSaved > 2_000_000) {
                         lastSaved = bytes
