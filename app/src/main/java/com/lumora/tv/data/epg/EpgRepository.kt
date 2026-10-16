@@ -3,6 +3,7 @@ package com.lumora.tv.data.epg
 import com.lumora.tv.data.repo.likeEscape
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.util.Xml
 import androidx.room.withTransaction
 import com.lumora.tv.data.db.LumoraDatabase
@@ -97,13 +98,22 @@ class EpgRepository(
             val programs = ArrayList<ProgramEntity>()
             // Several EPG URLs (or one guide listing a channel twice) can repeat the same slot.
             val seen = HashSet<String>()
+            // For "why does this channel show that guide?": one log line per guide channel that matched.
+            val guideNames = HashMap<String, List<String>>()
+            val logged = HashSet<String>()
             val listener = object : XmltvParser.Listener {
-                override fun onChannel(id: String, displayNames: List<String>) =
+                override fun onChannel(id: String, displayNames: List<String>) {
+                    guideNames[id] = displayNames
                     matcher.registerChannel(id, displayNames)
+                }
 
                 override fun onProgramme(programme: XmltvProgramme) {
                     if (programme.stop <= keepFrom || programme.start >= keepTo) return
-                    for (key in matcher.keysFor(programme.channelId)) {
+                    val keys = matcher.keysFor(programme.channelId)
+                    if (keys.isNotEmpty() && logged.add(programme.channelId)) {
+                        Log.d(TAG, "Guide channel ${programme.channelId} ${guideNames[programme.channelId]} -> $keys")
+                    }
+                    for (key in keys) {
                         if (!seen.add(key + '|' + programme.start)) continue
                         programs += ProgramEntity(
                             playlistId = playlistId,
@@ -172,3 +182,5 @@ class EpgRepository(
         val KEEP_FUTURE_MS = TimeUnit.DAYS.toMillis(7)
     }
 }
+
+private const val TAG = "LumoraEpg"
