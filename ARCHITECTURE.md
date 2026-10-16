@@ -54,7 +54,15 @@ Each channel has an `epgKey`: its tvg-id (lower-cased), or `n:` + its normalized
 
 1. Exact tvg-id (case-insensitive).
 2. tvg-id without an iptv-org style `@feed` suffix (`BBCNews.uk@HD` matches `BBCNews.uk`).
-3. Display name against the normalized channel name (lower-case, no brackets, no HD/FHD/SD/4K, letters and digits only).
+3. Display name against the normalized channel name (lower-case, no brackets, no HD/FHD/SD/4K, letters and digits only), with or without a country prefix: `UK: ITV HD` goes by both `ukitv` and `itv`.
+
+Countries keep namesakes apart (a UK and a Ukrainian "ITV" in one guide). A channel's country comes from its tvg-id suffix (`ITV.uk`, `BBCNews.uk@HD`), else from a name prefix (`UK:`, `[PL]`, `DE |`, `FR -`) or a bracketed code (`TF1 (FR)`). Codes are ISO 3166, and `uk` means Great Britain, as in IPTV lists (Ukraine is `ua`). Rules:
+
+- A match is dropped when the playlist channel and the guide channel name different countries, id matches included.
+- A name match needs the guide channel to be the only one of that name for the playlist channel: the only one in the same country, or failing that, the only one with no other country. Several candidates that can't be told apart (two "ITV"s and a playlist channel with no country) match nothing rather than the wrong one.
+- A playlist channel that some guide channel matches by id takes no name matches.
+
+Name matches are decided after the guide's `<channel>` list has been read, so the order of namesakes doesn't matter.
 
 Programmes are stored under the matched channels' epg keys, so they survive a playlist refresh. Guides are streamed with a pull parser, `.gz` is detected from the file's first bytes, and the playlist's EPG URL may list several URLs separated by commas. Guides older than 12 hours refresh in the background on app start.
 
