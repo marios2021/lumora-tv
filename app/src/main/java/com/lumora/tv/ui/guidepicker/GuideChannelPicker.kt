@@ -15,11 +15,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -43,6 +46,8 @@ import com.lumora.tv.data.db.GuideChannelEntity
 import com.lumora.tv.data.epg.EpgRepository
 import com.lumora.tv.data.epg.EpgStatus
 import com.lumora.tv.data.epg.GuideChannelSearch
+import com.lumora.tv.data.epg.GuideSource
+import com.lumora.tv.data.epg.GuideSources
 import com.lumora.tv.ui.common.FormField
 import com.lumora.tv.ui.common.ListItem
 import com.lumora.tv.ui.common.appContainer
@@ -62,8 +67,11 @@ data class GuidePickerState(
     val total: Int,
     val suggested: List<GuideChannelEntity>,
     val results: List<GuideChannelEntity>,
-    val updating: Boolean,
-)
+    /** The playlist's guide refresh: in progress, failed, or null when idle. */
+    val status: EpgStatus?,
+) {
+    val updating: Boolean get() = status == EpgStatus.Updating
+}
 
 class GuidePickerViewModel(private val epg: EpgRepository, val channel: ChannelEntity) : ViewModel() {
     private val _query = MutableStateFlow("")
@@ -72,14 +80,18 @@ class GuidePickerViewModel(private val epg: EpgRepository, val channel: ChannelE
     private val search = epg.guideChannels(channel.playlistId).map { GuideChannelSearch(it) }
 
     val state: StateFlow<GuidePickerState?> =
-        combine(search, _query, epg.status.map { it[channel.playlistId] == EpgStatus.Updating }) { s, q, updating ->
+        combine(search, _query, epg.status.map { it[channel.playlistId] }) { s, q, status ->
             GuidePickerState(
                 total = s.size,
                 suggested = if (q.isBlank()) s.suggestionsFor(channel.name) else emptyList(),
                 results = s.search(q),
-                updating = updating,
+                status = status,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The playlist's EPG URLs, to mark the free guides already added. */
+    val guideUrls: StateFlow<List<String>> = epg.guideUrls(channel.playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         // Guides refreshed before this version kept no channel list: load the guide once to get one.
@@ -94,6 +106,9 @@ class GuidePickerViewModel(private val epg: EpgRepository, val channel: ChannelE
 
     /** [guideChannelId]: a guide channel's id, "" for no guide, or null to match automatically. */
     fun choose(guideChannelId: String?) = epg.setGuideChannel(channel, guideChannelId)
+
+    /** Adds a free guide to the playlist's EPG URLs, or removes it; the guide then reloads. */
+    fun setSource(source: GuideSource, added: Boolean) = epg.setGuideSource(channel.playlistId, source.url, added)
 }
 
 /**
@@ -108,6 +123,8 @@ fun GuideChannelPicker(channel: ChannelEntity, onDismiss: () -> Unit, onChosen: 
     }
     val state by vm.state.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
+    val guideUrls by vm.guideUrls.collectAsStateWithLifecycle()
+    var showSources by remember { mutableStateOf(false) }
     val firstRow = remember { FocusRequester() }
     LaunchedEffect(Unit) { firstRow.requestFocusAfterLayout() }
 
@@ -135,6 +152,21 @@ fun GuideChannelPicker(channel: ChannelEntity, onDismiss: () -> Unit, onChosen: 
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            when (val status = state?.status) {
+                EpgStatus.Updating -> Text(
+                    "Loading the TV guide… new channels appear when it's done.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is EpgStatus.Failed -> Text(
+                    "Couldn't load the TV guide: ${status.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                null -> Unit
+            }
             Spacer(Modifier.height(10.dp))
             FormField(
                 label = "Search the guide's channels",
@@ -170,6 +202,17 @@ fun GuideChannelPicker(channel: ChannelEntity, onDismiss: () -> Unit, onChosen: 
                         onClick = { pick("", "No TV guide for “${channel.name}”") },
                     )
                 }
+                item(key = "__sources") {
+                    ListItem(
+                        selected = false,
+                        onClick = { showSources = true },
+                        leadingContent = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        headlineContent = { Text("Add a free TV guide", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Text("Find channels your guide lacks, such as epgshare01 UK", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
+                    )
+                }
                 when {
                     s == null -> Unit
                     s.total == 0 -> item(key = "__empty") {
@@ -177,7 +220,7 @@ fun GuideChannelPicker(channel: ChannelEntity, onDismiss: () -> Unit, onChosen: 
                             if (s.updating) {
                                 "Loading the TV guide…"
                             } else {
-                                "No guide channels yet. Add an EPG URL to the playlist, or refresh its TV guide."
+                                "No guide channels yet. Add a free TV guide above, or an EPG URL to the playlist."
                             },
                         )
                     }
@@ -196,6 +239,62 @@ fun GuideChannelPicker(channel: ChannelEntity, onDismiss: () -> Unit, onChosen: 
                         }
                     }
                 }
+            }
+        }
+        if (showSources) {
+            GuideSourcesDialog(
+                addedUrls = guideUrls,
+                onDismiss = { showSources = false },
+                onSelect = { source, added ->
+                    vm.setSource(source, added)
+                    showSources = false
+                },
+            )
+        }
+    }
+}
+
+/** Free guides to add to the playlist in one tap; selecting one already added removes it. */
+@Composable
+private fun GuideSourcesDialog(
+    addedUrls: List<String>,
+    onDismiss: () -> Unit,
+    onSelect: (GuideSource, added: Boolean) -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { first.requestFocusAfterLayout() }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .width(560.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Add a free TV guide", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "It is added to the playlist's EPG URLs and loaded with your guide; its channels then show " +
+                    "in this list. Community guides can change or stop without notice.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            GuideSources.all.forEachIndexed { index, source ->
+                val added = source.url in addedUrls
+                ListItem(
+                    selected = added,
+                    onClick = { onSelect(source, !added) },
+                    modifier = if (index == 0) Modifier.focusRequester(first) else Modifier,
+                    headlineContent = { Text(source.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = {
+                        Text(if (added) "Added · select to remove" else source.description, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    },
+                    trailingContent = if (added) {
+                        { Icon(Icons.Filled.Check, contentDescription = "Added", modifier = Modifier.size(20.dp)) }
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }

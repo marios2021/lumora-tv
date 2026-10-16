@@ -86,6 +86,24 @@ class EpgRepository(
         }
     }
 
+    /** The playlist's EPG URLs. */
+    fun guideUrls(playlistId: Long): Flow<List<String>> = playlistDao.observe(playlistId).map { epgUrls(it?.epgUrl) }
+
+    /** Adds [url] to the playlist's EPG URLs (or removes it) and reloads the guide. */
+    fun setGuideSource(playlistId: Long, url: String, added: Boolean) {
+        scope.launch {
+            val changed = db.withTransaction {
+                val playlist = playlistDao.get(playlistId) ?: return@withTransaction false
+                val urls = epgUrls(playlist.epgUrl)
+                if ((url in urls) == added) return@withTransaction false
+                val updated = if (added) urls + url else urls - url
+                playlistDao.update(playlist.copy(epgUrl = updated.joinToString(", ").ifEmpty { null }))
+                true
+            }
+            if (changed) refreshInBackground(playlistId, restart = true)
+        }
+    }
+
     /** The guide's channels as of its last refresh, to pick from for [setGuideChannel]. */
     fun guideChannels(playlistId: Long): Flow<List<GuideChannelEntity>> = guideDao.observeChannels(playlistId)
 
@@ -110,7 +128,7 @@ class EpgRepository(
     /** Downloads every EPG URL of the playlist and replaces its programmes. Returns the count stored. */
     suspend fun refresh(playlistId: Long): Int = withContext(Dispatchers.IO) {
         val playlist = playlistDao.get(playlistId) ?: return@withContext 0
-        val urls = playlist.epgUrl.orEmpty().split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        val urls = epgUrls(playlist.epgUrl)
         if (urls.isEmpty()) {
             // The EPG URL was removed: drop the old guide too.
             db.withTransaction {
@@ -224,3 +242,7 @@ class EpgRepository(
 }
 
 private const val TAG = "LumoraEpg"
+
+/** A playlist's EPG URL field can hold several URLs, separated by commas, spaces or new lines. */
+fun epgUrls(epgUrl: String?): List<String> =
+    epgUrl.orEmpty().split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }

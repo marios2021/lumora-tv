@@ -30,6 +30,32 @@ class GuideChannelSearchTest {
         assertEquals(listOf("ITV1.uk", "ITV2.uk"), ids(search.suggestionsFor("UK: ITV HD")))
     }
 
+    // Names as in the epgshare01 UK guide.
+    @Test
+    fun suggestsTheClosestNamesFirst() {
+        val uk = GuideChannelSearch(
+            listOf(
+                guide("ITV.Quiz.uk", "ITV Quiz"),
+                guide("CITV.uk", "CITV"),
+                guide("ITV1+1.uk", "ITV1+1"),
+                guide("ITV1.HD.uk", "ITV1 HD"),
+                guide("U.and.Dave.ja.vu.uk", "U and Dave ja vu"),
+                guide("U.and.Dave.HD.uk", "U and Dave HD"),
+                guide("Channel.44.uk", "Channel 44"),
+                guide("Channel.4.HD.uk", "Channel 4 HD"),
+            ),
+        )
+        assertEquals(listOf("ITV1.HD.uk", "ITV1+1.uk", "ITV.Quiz.uk", "CITV.uk"), ids(uk.suggestionsFor("UK: ITV HD")))
+        assertEquals(listOf("U.and.Dave.HD.uk", "U.and.Dave.ja.vu.uk"), ids(uk.suggestionsFor("UK: DAVE HD")))
+        assertEquals(listOf("Channel.4.HD.uk", "Channel.44.uk"), ids(uk.suggestionsFor("UK: CHANNEL 4 FHD")))
+    }
+
+    @Test
+    fun readsSeveralEpgUrls() {
+        assertEquals(listOf("http://a/x.xml", "http://b/y.xml.gz"), epgUrls(" http://a/x.xml,http://b/y.xml.gz\n"))
+        assertEquals(emptyList<String>(), epgUrls(null))
+    }
+
     @Test
     fun searchesNamesAndIdsIgnoringCaseAndSpaces() {
         assertEquals(listOf("ITV1.uk"), ids(search.search("itv 1")))
