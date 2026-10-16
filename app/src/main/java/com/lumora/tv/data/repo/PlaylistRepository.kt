@@ -197,6 +197,7 @@ class PlaylistRepository(
             }
             .chunked(1000)
             .forEach { channelDao.insertAll(it) }
+        db.guideDao().applyOverrides(playlistId)
     }
 
     private suspend fun load(playlist: PlaylistEntity): LoadedPlaylist = when (playlist.type) {

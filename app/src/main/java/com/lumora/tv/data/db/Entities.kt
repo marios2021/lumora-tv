@@ -55,6 +55,11 @@ data class ChannelEntity(
     val catchupType: String? = null,
     /** M3U catch-up URL template. */
     val catchupSource: String? = null,
+    /**
+     * The TV guide channel chosen by hand ("" = no guide); null to match automatically.
+     * A copy of [GuideOverrideEntity], set whenever channels are stored or an override changes.
+     */
+    val guideOverride: String? = null,
 ) {
     val number: Int get() = sortOrder + 1
 }
@@ -180,6 +185,51 @@ data class RecordingEntity(
     val error: String? = null,
 )
 
+/**
+ * A TV guide channel picked by hand for a playlist channel, because providers often tag channels
+ * with the wrong guide id. Kept apart from [ChannelEntity] so it survives a playlist refresh.
+ * [guideChannelId] is an XMLTV channel id, or "" for no guide at all.
+ */
+@Entity(
+    tableName = "guide_overrides",
+    primaryKeys = ["playlistId", "channelKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class GuideOverrideEntity(
+    val playlistId: Long,
+    val channelKey: String,
+    val guideChannelId: String,
+)
+
+/** A `<channel>` of the playlist's TV guide as of its last refresh, to pick from for an override. */
+@Entity(
+    tableName = "guide_channels",
+    primaryKeys = ["playlistId", "guideChannelId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class GuideChannelEntity(
+    val playlistId: Long,
+    val guideChannelId: String,
+    /** Its display names, one per line. */
+    val names: String,
+) {
+    val displayNames: List<String> get() = names.split('\n').filter { it.isNotBlank() }
+}
+
 data class ChannelItem(
     @Embedded val channel: ChannelEntity,
     val isFavorite: Boolean,
@@ -214,6 +264,7 @@ data class ProgramEntity(
 data class ChannelEpgInfo(
     val tvgId: String?,
     val name: String,
+    val guideOverride: String? = null,
 )
 
 data class GroupCount(

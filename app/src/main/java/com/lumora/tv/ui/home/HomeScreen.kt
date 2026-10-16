@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +68,7 @@ import com.lumora.tv.ui.common.NewPinDialog
 import com.lumora.tv.ui.common.PinDialog
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.lumora.tv.data.db.ChannelEntity
 import com.lumora.tv.data.db.ChannelItem
 import com.lumora.tv.data.db.PlaylistEntity
 import com.lumora.tv.data.db.PlaylistType
@@ -81,6 +83,8 @@ import com.lumora.tv.ui.common.rememberTimeFormat
 import com.lumora.tv.ui.common.span
 import com.lumora.tv.ui.common.appContainer
 import com.lumora.tv.ui.common.findActivity
+import com.lumora.tv.ui.guidepicker.GuideChannelPicker
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 import com.lumora.tv.ui.common.requestFocusAfterLayout
 import com.lumora.tv.ui.theme.LumoraColors
@@ -183,6 +187,9 @@ private fun ChannelBrowser(
     val hiddenGroups by vm.hiddenGroups.collectAsStateWithLifecycle()
     val pinSet by vm.pinSet.collectAsStateWithLifecycle()
     var pinRequest by remember { mutableStateOf<PinRequest?>(null) }
+    // Hold OK on a channel: a menu with favorite and TV guide channel.
+    var optionsFor by remember { mutableStateOf<ChannelItem?>(null) }
+    var guidePickFor by remember { mutableStateOf<ChannelEntity?>(null) }
     // After a PIN dialog closes, put focus back on the selected group (the Unlock button is gone).
     var refocusGroup by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -409,9 +416,9 @@ private fun ChannelBrowser(
                 val lockedSelection = (selection as? GroupSelection.Named)?.name?.takeIf { it in hiddenGroups }
                 if (lockedSelection == null) Text(
                     if (LocalIsTv.current) {
-                        "OK to play  ·  hold OK to add or remove a favorite"
+                        "OK to play  ·  hold OK for favorite and TV guide options"
                     } else {
-                        "Tap to play  ·  long-press to add or remove a favorite"
+                        "Tap to play  ·  long-press for favorite and TV guide options"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -463,7 +470,7 @@ private fun ChannelBrowser(
                                         if (index == channelEntryIndex) Modifier.focusRequester(channelEntryFocus) else Modifier,
                                     ),
                                 onClick = { onPlay(item.channel.id) },
-                                onLongClick = { vm.toggleFavorite(item) },
+                                onLongClick = { optionsFor = item },
                             )
                         }
                     }
@@ -471,6 +478,32 @@ private fun ChannelBrowser(
             }
         }
         if (exitArmed) ExitHint(Modifier.align(Alignment.BottomCenter))
+    }
+
+    optionsFor?.let { item ->
+        ChannelOptionsDialog(
+            item = item,
+            onDismiss = { optionsFor = null },
+            onToggleFavorite = {
+                optionsFor = null
+                vm.toggleFavorite(item)
+                toast(if (item.isFavorite) "Removed from favorites" else "Added to favorites")
+            },
+            onChooseGuide = {
+                optionsFor = null
+                guidePickFor = item.channel
+            },
+        )
+    }
+    guidePickFor?.let { channel ->
+        GuideChannelPicker(
+            channel = channel,
+            onDismiss = { guidePickFor = null },
+            onChosen = { message ->
+                guidePickFor = null
+                toast(message)
+            },
+        )
     }
 
     when (val request = pinRequest) {
@@ -507,6 +540,64 @@ private fun ChannelBrowser(
             vm.setLocked(request.group, true)
             pinRequest = null
             toast("PIN set. \u201c${request.group}\u201d is locked")
+        }
+    }
+}
+
+@Composable
+private fun ChannelOptionsDialog(
+    item: ChannelItem,
+    onDismiss: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onChooseGuide: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { first.requestFocusAfterLayout() }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .width(420.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                item.channel.name,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp, bottom = 8.dp),
+            )
+            ListItem(
+                selected = false,
+                onClick = onToggleFavorite,
+                modifier = Modifier.focusRequester(first),
+                leadingContent = {
+                    Icon(
+                        if (item.isFavorite) Icons.Filled.StarBorder else Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = LumoraColors.Favorite,
+                    )
+                },
+                headlineContent = { Text(if (item.isFavorite) "Remove from favorites" else "Add to favorites") },
+            )
+            ListItem(
+                selected = false,
+                onClick = onChooseGuide,
+                leadingContent = { Icon(Icons.Filled.CalendarViewWeek, contentDescription = null) },
+                headlineContent = { Text("Choose TV guide channel") },
+                supportingContent = {
+                    Text(
+                        when (val id = item.channel.guideOverride) {
+                            null -> "Automatic"
+                            "" -> "None"
+                            else -> "Set by hand: $id"
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
         }
     }
 }

@@ -40,13 +40,15 @@ Data flows one way: **Repository → Flow → ViewModel StateFlow → Compose**.
 ## Data model
 
 - **playlists**: id, name, type (`M3U_URL`, `M3U_FILE`, `XTREAM`), url, username, password, epgUrl, updatedAt
-- **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder, and catch-up info (days, type, source template)
+- **channels**: id, playlistId, key (stable id: stream URL or Xtream stream id), name, groupTitle, logo, streamUrl, tvgId, sortOrder, catch-up info (days, type, source template), and `guideOverride` (a copy of the channel's row in guide_overrides, if any)
 - **favorites**: playlistId + channelKey. Kept in a separate table so favorites survive a playlist refresh.
 - **locked_groups**: playlistId + groupTitle, for the parental lock (milestone 7). Also kept by name, so locks survive a refresh.
 - **vod**: movies and series of Xtream playlists (kind, provider id, name, category, poster, rating, year, file type). Details, seasons and episodes are fetched when a title is opened.
 - **recordings**: channel, title, stream URL, recording window, status (scheduled, recording, done, failed), file and size. Not tied to a playlist, so recordings outlive it.
 - **playback_progress**: playlistId + content key (`movie:<id>` / `episode:<id>`), position, duration, and the series an episode belongs to.
 - **programs**: playlistId, epgKey, start, stop, title, description. Only programmes from 6 hours ago to 7 days ahead are kept, and only for channels that matched.
+- **guide_overrides** (DB v7): playlistId + channelKey → guideChannelId, a TV guide channel picked by hand ("" = no guide). Kept apart from channels, like favorites, so it survives a playlist refresh; each time channels are stored, the overrides are copied onto their `guideOverride` column.
+- **guide_channels** (DB v7): playlistId + guideChannelId, display names. The guide's `<channel>` list from its last refresh, replaced with the programmes, to pick from.
 
 ### EPG matching
 
@@ -63,6 +65,14 @@ Countries keep namesakes apart (a UK and a Ukrainian "ITV" in one guide). A chan
 - A playlist channel that some guide channel matches by id takes no name matches.
 
 Name matches are decided after the guide's `<channel>` list has been read, so the order of namesakes doesn't matter.
+
+#### Choosing the guide channel by hand
+
+Providers often tag channels with the wrong guide id (one tagged "UK: ITV HD" with `srf1`, a Swiss channel), and matching follows the id. So, like TiviMate's EPG mapping, a channel's guide channel can be picked by hand: hold OK (or long-press) on a channel, then **Choose TV guide channel**. The picker lists the guide's channels (from guide_channels) with a search box, channels named like the playlist channel first under "Suggested", plus **Automatic** (remove the override) and **None**.
+
+- A channel with an override has the epg key `g:` + the guide channel id, lower-cased (`g:` alone for None), instead of its tvg-id or name. `ChannelEntity.epgKey` reads the `guideOverride` column, so lists, the guide, the player and search all follow it.
+- `EpgMatcher` leaves overridden channels out of id and name matching, and gives each picked guide channel's programmes to its `g:` key as well as to any channels it matches automatically. Other channels sharing the overridden channel's tvg-id keep their match.
+- Choosing saves the override, updates the channel rows and restarts the guide refresh for that playlist (cancelling one in progress), so it applies straight away. Guides refreshed before v7 kept no channel list, so opening the picker with none loads the guide once.
 
 Programmes are stored under the matched channels' epg keys, so they survive a playlist refresh. Guides are streamed with a pull parser, `.gz` is detected from the file's first bytes, and the playlist's EPG URL may list several URLs separated by commas. Guides older than 12 hours refresh in the background on app start.
 
@@ -81,7 +91,7 @@ Home (groups | channels) ──OK──▶ Player ──Back──▶ Home
   └─▶ Settings
 ```
 
-- OK on a channel plays it; long-press OK toggles favorite.
+- OK on a channel plays it; long-press OK opens a menu: add or remove the favorite, or choose the channel's TV guide channel.
 - Back in the channel list moves to the groups; Back again shows "Press Back again to exit"; a third press within 2.5 s exits.
 - On every visit (app start included) the list focuses the last channel watched.
 - Focusing a group selects it after a 250 ms pause. Leaving the groups upward (to Guide, Playlists or Settings) without entering a channel list puts back the group that was showing, so passing over Favorites doesn't switch to it.

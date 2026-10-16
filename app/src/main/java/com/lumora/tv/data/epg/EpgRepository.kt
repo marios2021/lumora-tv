@@ -6,12 +6,17 @@ import android.net.Uri
 import android.util.Log
 import android.util.Xml
 import androidx.room.withTransaction
+import com.lumora.tv.data.db.ChannelEntity
+import com.lumora.tv.data.db.GuideChannelEntity
+import com.lumora.tv.data.db.GuideOverrideEntity
 import com.lumora.tv.data.db.LumoraDatabase
 import com.lumora.tv.data.db.ProgramEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +45,7 @@ class EpgRepository(
     private val playlistDao = db.playlistDao()
     private val channelDao = db.channelDao()
     private val programDao = db.programDao()
+    private val guideDao = db.guideDao()
     private val parser = XmltvParser { Xml.newPullParser() }
     private val jobs = HashMap<Long, Job>()
 
@@ -65,14 +71,41 @@ class EpgRepository(
     suspend fun searchPrograms(playlistId: Long, query: String, now: Long, limit: Int = 60): List<ProgramEntity> =
         programDao.search(playlistId, likeEscape(query), now, limit)
 
-    /** Starts a refresh unless one is already running for this playlist. */
-    fun refreshInBackground(playlistId: Long) {
+    /**
+     * Starts a refresh unless one is already running for this playlist. With [restart], a running
+     * one is cancelled and started again, so it sees changes made since it began.
+     */
+    fun refreshInBackground(playlistId: Long, restart: Boolean = false) {
         synchronized(jobs) {
-            if (jobs[playlistId]?.isActive == true) return
-            jobs[playlistId] = scope.launch { runCatching { refresh(playlistId) } }
+            val running = jobs[playlistId]?.takeIf { it.isActive }
+            if (running != null && !restart) return
+            jobs[playlistId] = scope.launch {
+                running?.cancelAndJoin()
+                runCatching { refresh(playlistId) }
+            }
         }
     }
 
+    /** The guide's channels as of its last refresh, to pick from for [setGuideChannel]. */
+    fun guideChannels(playlistId: Long): Flow<List<GuideChannelEntity>> = guideDao.observeChannels(playlistId)
+
+    /**
+     * Gives [channel] the programmes of guide channel [guideChannelId] ("" for none), or with null
+     * goes back to matching it automatically. The guide is then reloaded to apply it.
+     */
+    fun setGuideChannel(channel: ChannelEntity, guideChannelId: String?) {
+        scope.launch {
+            db.withTransaction {
+                if (guideChannelId == null) {
+                    guideDao.removeOverride(channel.playlistId, channel.channelKey)
+                } else {
+                    guideDao.saveOverride(GuideOverrideEntity(channel.playlistId, channel.channelKey, guideChannelId))
+                }
+                guideDao.applyOverrides(channel.playlistId)
+            }
+            refreshInBackground(channel.playlistId, restart = true)
+        }
+    }
 
     /** Downloads every EPG URL of the playlist and replaces its programmes. Returns the count stored. */
     suspend fun refresh(playlistId: Long): Int = withContext(Dispatchers.IO) {
@@ -82,6 +115,7 @@ class EpgRepository(
             // The EPG URL was removed: drop the old guide too.
             db.withTransaction {
                 programDao.deleteForPlaylist(playlistId)
+                guideDao.deleteChannels(playlistId)
                 playlistDao.update(playlist.copy(epgUpdatedAt = 0))
             }
             return@withContext 0
@@ -98,8 +132,9 @@ class EpgRepository(
             val programs = ArrayList<ProgramEntity>()
             // Several EPG URLs (or one guide listing a channel twice) can repeat the same slot.
             val seen = HashSet<String>()
-            // For "why does this channel show that guide?": one log line per guide channel that matched.
-            val guideNames = HashMap<String, List<String>>()
+            // The guide's channels, kept to pick from by hand; and for "why does this channel show
+            // that guide?", one log line per guide channel that matched.
+            val guideNames = LinkedHashMap<String, List<String>>()
             val logged = HashSet<String>()
             val listener = object : XmltvParser.Listener {
                 override fun onChannel(id: String, displayNames: List<String>) {
@@ -108,6 +143,8 @@ class EpgRepository(
                 }
 
                 override fun onProgramme(programme: XmltvProgramme) {
+                    // Parsing blocks, so check here: a restarted refresh shouldn't wait for this one.
+                    this@withContext.ensureActive()
                     if (programme.stop <= keepFrom || programme.start >= keepTo) return
                     val keys = matcher.keysFor(programme.channelId)
                     if (keys.isNotEmpty() && logged.add(programme.channelId)) {
@@ -143,6 +180,9 @@ class EpgRepository(
             db.withTransaction {
                 programDao.deleteForPlaylist(playlistId)
                 programs.chunked(2_000).forEach { programDao.insertAll(it) }
+                guideDao.deleteChannels(playlistId)
+                guideNames.map { (id, names) -> GuideChannelEntity(playlistId, id, names.joinToString("\n")) }
+                    .chunked(2_000).forEach { guideDao.insertChannels(it) }
                 playlistDao.get(playlistId)?.let { playlistDao.update(it.copy(epgUpdatedAt = System.currentTimeMillis())) }
             }
             clearStatus(playlistId)

@@ -53,7 +53,7 @@ interface ChannelDao {
     @Query("SELECT COALESCE(MAX(catchupDays), 0) FROM channels WHERE playlistId = :playlistId")
     suspend fun maxCatchupDays(playlistId: Long): Int
 
-    @Query("SELECT tvgId, name FROM channels WHERE playlistId = :playlistId")
+    @Query("SELECT tvgId, name, guideOverride FROM channels WHERE playlistId = :playlistId")
     suspend fun epgInfo(playlistId: Long): List<ChannelEpgInfo>
 
     @Query("SELECT id FROM channels c WHERE playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY sortOrder")
@@ -93,6 +93,32 @@ interface ChannelDao {
             "WHERE c.playlistId = :playlistId AND c.groupTitle NOT IN (:hidden) ORDER BY f.addedAt",
     )
     fun observeFavorites(playlistId: Long, hidden: List<String>): Flow<List<ChannelItem>>
+}
+
+@Dao
+interface GuideDao {
+    @Upsert
+    suspend fun saveOverride(override: GuideOverrideEntity)
+
+    @Query("DELETE FROM guide_overrides WHERE playlistId = :playlistId AND channelKey = :channelKey")
+    suspend fun removeOverride(playlistId: Long, channelKey: String)
+
+    /** Copies the overrides onto the channel rows, after they were stored again or an override changed. */
+    @Query(
+        "UPDATE channels SET guideOverride = (SELECT o.guideChannelId FROM guide_overrides o " +
+            "WHERE o.playlistId = channels.playlistId AND o.channelKey = channels.channelKey) " +
+            "WHERE playlistId = :playlistId",
+    )
+    suspend fun applyOverrides(playlistId: Long)
+
+    @Query("DELETE FROM guide_channels WHERE playlistId = :playlistId")
+    suspend fun deleteChannels(playlistId: Long)
+
+    @Insert
+    suspend fun insertChannels(channels: List<GuideChannelEntity>)
+
+    @Query("SELECT * FROM guide_channels WHERE playlistId = :playlistId")
+    fun observeChannels(playlistId: Long): Flow<List<GuideChannelEntity>>
 }
 
 @Dao

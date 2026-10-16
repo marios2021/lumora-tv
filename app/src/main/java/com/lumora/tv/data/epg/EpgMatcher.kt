@@ -11,7 +11,17 @@ import java.util.Locale
 fun epgKeyFor(tvgId: String?, name: String): String =
     tvgId?.trim()?.takeIf { it.isNotEmpty() }?.lowercase() ?: ("n:" + normalizeChannelName(name))
 
-val ChannelEntity.epgKey: String get() = epgKeyFor(tvgId, name)
+/**
+ * The key for a channel whose guide channel was picked by hand ([guideOverride], "" for none):
+ * programmes of that guide channel are stored under "g:<id>", whatever its tvg-id or name match.
+ * Null when the channel is matched automatically.
+ */
+fun overrideKeyFor(guideOverride: String?): String? = guideOverride?.let { "g:" + it.trim().lowercase() }
+
+fun epgKeyFor(tvgId: String?, name: String, guideOverride: String?): String =
+    overrideKeyFor(guideOverride) ?: epgKeyFor(tvgId, name)
+
+val ChannelEntity.epgKey: String get() = epgKeyFor(tvgId, name, guideOverride)
 
 private val bracketed = Regex("""\([^)]*\)|\[[^]]*]""")
 private val qualitySuffix = Regex("""\b(uhd|fhd|hd|sd|4k|hevc|h265|backup)\b""")
@@ -56,7 +66,7 @@ private fun nameCountry(name: String): String? {
 fun channelCountry(tvgId: String?, name: String): String? = idCountry(tvgId) ?: nameCountry(name)
 
 /** Normalized names a channel goes by: its whole name, and without a country prefix ("UK: ITV HD" -> ukitv, itv). */
-private fun nameForms(name: String): List<String> {
+internal fun nameForms(name: String): List<String> {
     val full = normalizeChannelName(name)
     val base = countryPrefix.find(name.lowercase())
         ?.takeIf { countryOf(it.groupValues[1]) != null }
@@ -73,6 +83,8 @@ private fun compatible(a: String?, b: String?): Boolean = a == null || b == null
  * [channelCountry]) must not disagree. A name match also needs the guide channel to be the only one
  * of that name for the playlist channel: the only one in its country, or failing that, the only one
  * not in another country. Playlist channels that some guide channel matches by id take no name matches.
+ * Channels with a guide channel picked by hand (see [overrideKeyFor]) take part in none of this: they
+ * get exactly the programmes of the guide channel picked, or none.
  */
 class EpgMatcher(channels: List<ChannelEpgInfo>) {
     private class Target(val key: String, val country: String?, val ids: List<String>, val names: List<String>)
@@ -87,11 +99,19 @@ class EpgMatcher(channels: List<ChannelEpgInfo>) {
     /** Id forms of registered guide channels -> their countries (null for none). */
     private val guideIds = HashMap<String, MutableSet<String?>>()
 
+    /** Guide channels picked by hand for some playlist channel, by [overrideKeyFor] key. */
+    private val pickedKeys = HashSet<String>()
+
     private val resolved = HashMap<String, Set<String>>()
     private var stale = false
 
     init {
         for (c in channels) {
+            val overrideKey = overrideKeyFor(c.guideOverride)
+            if (overrideKey != null) {
+                if (c.guideOverride!!.isNotBlank()) pickedKeys += overrideKey
+                continue
+            }
             val key = epgKeyFor(c.tvgId, c.name)
             val country = channelCountry(c.tvgId, c.name)
             if (country != null && key !in keyCountry) keyCountry[key] = country
@@ -122,7 +142,10 @@ class EpgMatcher(channels: List<ChannelEpgInfo>) {
             resolved.clear()
             stale = false
         }
-        return resolved.getOrPut(xmltvId) { resolve(xmltvId) }
+        return resolved.getOrPut(xmltvId) {
+            val picked = overrideKeyFor(xmltvId)!!
+            if (picked in pickedKeys) resolve(xmltvId) + picked else resolve(xmltvId)
+        }
     }
 
     private fun resolve(xmltvId: String): Set<String> {
