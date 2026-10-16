@@ -65,7 +65,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -138,11 +138,12 @@ fun PlayerScreen(
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
     }
+    val loadControl = remember { LiveLoadControl.create(container.settings.current.value.bufferProfile) }
     val player = remember {
         // If the device's preferred video decoder fails to start, try the next one instead of failing.
         val renderers = DefaultRenderersFactory(androidContext).setEnableDecoderFallback(true)
         ExoPlayer.Builder(androidContext, renderers)
-            .setLoadControl(loadControlFor(container.settings.current.value.bufferProfile))
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(OkHttpDataSource.Factory(streamHttp))
                     .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(1)),
@@ -162,12 +163,35 @@ fun PlayerScreen(
     var buffering by remember { mutableStateOf(true) }
     var videoHeight by remember { mutableIntStateOf(0) }
     var paused by remember { mutableStateOf(false) }
+    // For the stream-info line: which video decoder runs, and how many frames it couldn't keep up with.
+    var decoderName by remember { mutableStateOf<String?>(null) }
+    var droppedFrames by remember { mutableIntStateOf(0) }
+    var streamInfo by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(player) {
+        val analytics = object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                name: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                decoderName = name
+            }
+
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
+                droppedFrames += count
+            }
+        }
+        player.addAnalyticsListener(analytics)
+        onDispose { player.removeAnalyticsListener(analytics) }
+    }
     var behind by remember { mutableLongStateOf(0L) }
     var canRewind by remember { mutableStateOf(false) }
     LaunchedEffect(live) {
         while (true) {
             behind = live.behindMs()
             canRewind = live.canRewind
+            streamInfo = describeStream(player, live, loadControl, decoderName, droppedFrames)
             delay(500)
         }
     }
@@ -199,6 +223,9 @@ fun PlayerScreen(
         videoHeight = 0
         behind = 0
         live.play(vm.playableUrl(c))
+        loadControl.newStream(isHls = !live.usesTimeshift)
+        decoderName = null
+        droppedFrames = 0
     }
 
     // Live TV: stop when the app is backgrounded, then rejoin at the live edge when it comes back.
@@ -405,7 +432,7 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            if (c != null) InfoOverlay(c, videoHeight, upcoming, now, behind, paused)
+            if (c != null) InfoOverlay(c, videoHeight, upcoming, now, behind, paused, streamInfo)
         }
 
         // Touch screens have no remote: offer Back and the TV guide on screen while the info shows.
@@ -520,6 +547,7 @@ private fun InfoOverlay(
     now: Long,
     behind: Long,
     paused: Boolean,
+    streamInfo: String?,
 ) {
     val context = LocalContext.current
     val timeFormat = rememberTimeFormat()
@@ -632,6 +660,10 @@ private fun InfoOverlay(
             style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant,
         )
+        streamInfo?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant.copy(alpha = 0.7f))
+        }
     }
 }
 
@@ -663,24 +695,32 @@ internal fun useTextureView(context: Context, output: VideoOutput): Boolean = wh
     }
 }
 
+/**
+ * One line about how the stream is doing, for telling network trouble from a slow device:
+ * resolution, how fast data arrives, how far ahead the player is, stalls, the decoder and dropped frames.
+ */
 @OptIn(UnstableApi::class)
-private fun loadControlFor(profile: BufferProfile): DefaultLoadControl {
-    // (min buffer, max buffer, buffer before starting, buffer before resuming after a stall), in ms.
-    val (min, max, start, resume) = when (profile) {
-        BufferProfile.FAST_START -> listOf(15_000, 50_000, 1_000, 2_000)
-        BufferProfile.BALANCED -> listOf(
-            DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-            DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
-        )
-        BufferProfile.SMOOTH -> listOf(30_000, 90_000, 4_000, 8_000)
+private fun describeStream(
+    player: ExoPlayer,
+    live: LivePlayback,
+    loadControl: LiveLoadControl,
+    decoder: String?,
+    dropped: Int,
+): String {
+    val parts = mutableListOf<String>()
+    player.videoFormat?.let { if (it.width > 0) parts += "${it.width}×${it.height}" }
+    val bitsPerSecond = live.incomingBytesPerSecond()?.let { it * 8 } ?: player.videoFormat?.bitrate?.takeIf { it > 0 }?.toLong()
+    bitsPerSecond?.let { parts += "%.1f Mbit/s".format(it / 1_000_000.0) }
+    parts += "buffer ${player.totalBufferedDuration / 1000} s"
+    if (loadControl.stalls > 0) {
+        parts += "${loadControl.stalls} stall${if (loadControl.stalls == 1) "" else "s"} (now waits ${loadControl.resumeTargetMs / 1000} s)"
     }
-    return DefaultLoadControl.Builder()
-        .setBufferDurationsMs(min, max, start, resume)
-        // Keep what was just played, so rewinding an HLS stream is instant.
-        .setBackBuffer((MAX_REWIND_MS + 5_000).toInt(), true)
-        .build()
+    decoder?.let {
+        val software = it.startsWith("OMX.google.", ignoreCase = true) || it.startsWith("c2.android.", ignoreCase = true)
+        parts += if (software) "software decoder" else "hardware decoder"
+    }
+    if (dropped > 0) parts += "$dropped dropped frames"
+    return parts.joinToString("   ·   ")
 }
 
 private fun digitFor(keyCode: Int): Int? = when (keyCode) {

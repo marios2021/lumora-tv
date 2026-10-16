@@ -86,6 +86,7 @@ fun SettingsScreen() {
                 SettingRow(
                     title = "Buffering",
                     description = "Fast start changes channel quicker; Smooth playback stalls less on slow connections. " +
+                        "After a stall, live TV keeps a bigger buffer for the rest of the channel. " +
                         "Applies the next time the player opens.",
                     value = settings.bufferProfile.label,
                     onClick = vm::cycleBufferProfile,

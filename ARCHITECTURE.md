@@ -121,6 +121,8 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - **Plain HTTP streams** (MPEG-TS, the IPTV norm) can't seek. A background thread reads the stream into a 32 MB in-memory ring buffer (`TimeshiftBuffer`, about 30 s at 8 Mbit/s), noting when each part arrived, and ExoPlayer plays from that buffer. Rewinding restarts playback from an earlier TS packet in the buffer, so the server sees only one connection (important for Xtream accounts with a connection limit).
 - "Behind live" is measured against the delay while watching live, so the badge shows 0 at live and counts up while paused.
 
+**Buffering on live TS.** A plain live stream arrives in real time, so the player only ever has the few seconds it waited before starting (2.5 s on Balanced): any network dropout longer than that stalls. `LiveLoadControl` doubles the buffer a resume waits for after each stall on the same channel (Balanced: 5, 10, 20, then 30 s), leaving that much headroom for the next dropout. HLS keeps its usual rules (it already plays several segments behind live), and the back buffer is kept only for HLS, which saves memory on TS. The info overlay shows resolution, how fast the stream arrives, the buffer, stalls, whether the decoder is hardware or software, and dropped frames, to tell network trouble from a device that can't keep up.
+
 ### Search and parental lock (milestone 7)
 
 - **Search** (magnifier next to Settings) looks through the active playlist's channel names and the titles of programmes that haven't finished, 300 ms after typing stops. A programme on now plays its channel; a later one opens the TV guide at that time and channel.

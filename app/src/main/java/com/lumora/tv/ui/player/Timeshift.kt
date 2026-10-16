@@ -63,6 +63,12 @@ class LivePlayback(private val player: ExoPlayer, private val http: OkHttpClient
 
     private val buffered get() = buffer != null && writer != null
 
+    /** True when this stream plays through the timeshift buffer (plain HTTP), false for HLS / DASH. */
+    val usesTimeshift: Boolean get() = buffered
+
+    /** How fast the stream is arriving, in bytes per second over the last few seconds; null if unknown. */
+    fun incomingBytesPerSecond(): Long? = if (buffered) buffer?.rate(generation) else null
+
     /** Starts [url] live from the network. */
     fun play(url: String) {
         stopWriter()
@@ -294,6 +300,15 @@ class TimeshiftBuffer(private val capacity: Int) {
             cursor[0] += n
             return n
         }
+    }
+
+    /** Bytes per second received over about the last five seconds. */
+    fun rate(gen: Int): Long? = synchronized(lock) {
+        if (gen != generation) return@synchronized null
+        val now = SystemClock.elapsedRealtime()
+        val since = marks.firstOrNull { it.time >= now - 5_000 } ?: return@synchronized null
+        val ms = now - since.time
+        if (ms < 1_000) null else (written - since.pos) * 1000 / ms
     }
 
     /** When the byte at [pos] arrived (elapsedRealtime), or null before any data. */
