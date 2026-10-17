@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -241,7 +242,7 @@ fun SettingsScreen() {
                         title = "Update available: ${found.versionName}",
                         description = when (val u = update) {
                             is UpdateState.Downloading -> "Downloading…"
-                            is UpdateState.Installing -> "Android asks you to confirm, then Lumora TV restarts as the new version."
+                            is UpdateState.Installing -> "Android may ask you to confirm. The new version then replaces this one."
                             is UpdateState.Failed -> u.message
                             else -> found.notes.ifBlank { "Download and install it now. Your playlists and settings are kept." }
                         },
@@ -379,6 +380,7 @@ private fun UpdateSourceDialog(
     var newUrl by remember { mutableStateOf(url) }
     var newToken by remember { mutableStateOf(token) }
     val first = remember { FocusRequester() }
+    val save = remember { FocusRequester() }
     LaunchedEffect(Unit) { first.requestFocusAfterLayout() }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -409,10 +411,12 @@ private fun UpdateSourceDialog(
                 isPassword = true,
                 imeAction = ImeAction.Done,
                 keyboardActions = KeyboardActions(onDone = { onSave(newUrl, newToken) }),
+                // Down goes to Save, not to whichever button happens to be nearer.
+                modifier = Modifier.focusProperties { down = save },
             )
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { onSave(newUrl, newToken) }) { Text("Save") }
+                Button(onClick = { onSave(newUrl, newToken) }, modifier = Modifier.focusRequester(save)) { Text("Save") }
                 OutlinedButton(onClick = onDismiss) { Text("Cancel") }
             }
         }
@@ -433,9 +437,9 @@ private fun InstallPermissionDialog(versionName: String, onDismiss: () -> Unit, 
         ) {
             Text("Allow Lumora TV to install updates", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Android only lets an app install $versionName after you allow it once. On the next screen, turn on " +
-                    "“Allow from this source” for Lumora TV (on some TVs: Security → Unknown sources → Lumora TV), " +
-                    "then press Back. The update then continues here.",
+                "Android only lets an app install $versionName after you allow it once. On the next screen " +
+                    "(“Install unknown apps”), turn Lumora TV on, or “Allow from this source” on phones and " +
+                    "tablets, then press Back. The update then continues here.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

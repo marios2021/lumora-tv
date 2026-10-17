@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.core.content.IntentCompat
 import androidx.core.content.pm.PackageInfoCompat
 import com.lumora.tv.LumoraApp
+import com.lumora.tv.MainActivity
 import com.lumora.tv.data.repo.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -54,7 +55,8 @@ sealed interface UpdateState {
  * Updates the app from an update file the user publishes (see README, "Updating without a cable"):
  * checks the address set in Settings (by hand, or at most once a day while the app is open),
  * downloads the APK, checks it is this app signed with the same key, and installs it with
- * [PackageInstaller]. Android shows its own confirmation, then restarts the app as the new version.
+ * [PackageInstaller]. Android may ask the user to confirm; it then replaces the app, and
+ * [UpdateRelaunchReceiver] opens the new version.
  */
 class Updater(
     private val context: Context,
@@ -154,7 +156,18 @@ class Updater(
         job = scope.launch(Dispatchers.IO) {
             try {
                 _state.value = UpdateState.Downloading(info, 0f)
-                val apk = download(info)
+                val apk = try {
+                    download(info)
+                } catch (e: IOException) {
+                    if (e is HttpFailure) throw e
+                    // Wi-Fi drops and servers that close early: one more go before giving up.
+                    delay(RETRY_DELAY_MS)
+                    try {
+                        download(info)
+                    } catch (e: IOException) {
+                        throw IOException("Couldn't download the update: ${e.readable()}", e)
+                    }
+                }
                 verify(apk)
                 _state.value = UpdateState.Installing(info)
                 commit(apk)
@@ -200,10 +213,10 @@ class Updater(
         open(info.apkUrl, binary = true).use { response ->
             val body = response.body!!
             val total = body.contentLength().takeIf { it > 0 }
+            var done = 0L
             body.byteStream().use { input ->
                 file.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
-                    var done = 0L
                     var shown = -1
                     while (true) {
                         val n = input.read(buffer)
@@ -218,6 +231,7 @@ class Updater(
                     }
                 }
             }
+            if (total != null && done != total) throw IOException("the download stopped at ${done * 100 / total} %.")
         }
         return file
     }
@@ -280,6 +294,7 @@ class Updater(
                 val pending = PendingIntent.getBroadcast(
                     context, sessionId, callback, PendingIntent.FLAG_UPDATE_CURRENT or mutable,
                 )
+                UpdateRelaunchReceiver.arm(context, true)
                 session.commit(pending.intentSender)
             }
         } catch (e: Exception) {
@@ -292,6 +307,7 @@ class Updater(
 
     /** From [UpdateInstallReceiver]. On success Android replaces and restarts the app, so there is nothing to do. */
     internal fun onInstallFailed(status: Int, message: String?) {
+        UpdateRelaunchReceiver.arm(context, false)
         val info = when (val s = _state.value) {
             is UpdateState.Installing -> s.info
             is UpdateState.Downloading -> s.info
@@ -340,11 +356,14 @@ class Updater(
         return call(request, gitHub = ref != null)
     }
 
+    /** The server answered with an error: trying again right away won't help. */
+    private class HttpFailure(message: String) : IOException(message)
+
     private fun call(request: Request, gitHub: Boolean): Response {
         val response = http.newCall(request).execute()
         if (response.isSuccessful) return response
         response.close()
-        throw IOException(
+        throw HttpFailure(
             when {
                 gitHub && (response.code == 401 || response.code == 403) -> "GitHub refused the access token (HTTP ${response.code})."
                 gitHub && response.code == 404 ->
@@ -359,6 +378,8 @@ class Updater(
         is java.net.UnknownHostException -> "can't reach ${message ?: "the server"}. Check the address and the network."
         is java.net.SocketTimeoutException -> "the server didn't answer in time."
         is java.net.ConnectException -> "can't connect to the server."
+        is java.net.ProtocolException, is java.io.EOFException, is java.net.SocketException ->
+            "the connection broke off. Try again."
         else -> message ?: javaClass.simpleName
     }
 
@@ -367,6 +388,7 @@ class Updater(
         private val AUTO_START_DELAY_MS = TimeUnit.SECONDS.toMillis(20)
         private val AUTO_EVERY_MS = TimeUnit.HOURS.toMillis(1)
         private val AUTO_INTERVAL_MS = TimeUnit.DAYS.toMillis(1)
+        private val RETRY_DELAY_MS = TimeUnit.SECONDS.toMillis(2)
     }
 }
 
@@ -382,6 +404,33 @@ class UpdateInstallReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> Unit
             else -> (context.applicationContext as LumoraApp).container.updater
                 .onInstallFailed(status, intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
+        }
+    }
+}
+
+/**
+ * Opens the new version after Lumora TV updated itself (Android leaves the user on the home screen).
+ * Only after an update started in Settings, not after installs by cable. Android 10+ may not allow
+ * an app to open itself from the background; the user then opens it from the launcher.
+ */
+class UpdateRelaunchReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_RELAUNCH, false)) return
+        prefs.edit().remove(KEY_RELAUNCH).apply()
+        runCatching {
+            context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    companion object {
+        private const val PREFS = "update"
+        private const val KEY_RELAUNCH = "relaunch_after_update"
+
+        /** Saved synchronously: the process is killed as soon as the install starts. */
+        fun arm(context: Context, relaunch: Boolean) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_RELAUNCH, relaunch).commit()
         }
     }
 }
