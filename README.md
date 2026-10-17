@@ -92,7 +92,7 @@ Where the files can live:
 1. Settings → Updates → **Update address**, and enter the address (a touch keyboard is easiest; on a TV, OK opens the on-screen keyboard).
 2. **Check for updates**, then **Install** on "Update available: 0.1.x".
 3. The first time, Android has to allow Lumora TV to install apps. The app explains this and opens the right screen: turn on **Allow from this source**, press Back, and the update continues.
-4. Android asks to confirm the update, then restarts Lumora TV as the new version. On Android 12 and later, updates may install without that question once Lumora TV has installed itself.
+4. Android may ask you to confirm the update (Android 8 always does; Android 12 and later usually installs it without asking). It then replaces the app, and Lumora TV opens again as the new version.
 
 With an address set, the app also checks by itself at most once a day while it's open, and shows a message when a new version is out (turn it off with **Check automatically**).
 
