@@ -15,6 +15,18 @@ val keystoreProperties = Properties().apply {
 }
 val hasReleaseKey = !keystoreProperties.getProperty("storeFile").isNullOrBlank()
 
+// The version follows the git history, so every committed change gets a higher number:
+// versionCode = number of commits, versionName = "0.1.<that number>". Android only installs an
+// update with a higher versionCode. Raise VERSION_PREFIX by hand for a bigger release.
+val VERSION_PREFIX = "0.1"
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrElse {
+    logger.warn("Couldn't count git commits (${it.message}): using version code 1.")
+    1
+}
+
 android {
     namespace = "com.lumora.tv"
     compileSdk = 35
@@ -23,8 +35,8 @@ android {
         applicationId = "com.lumora.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = commitCount
+        versionName = "$VERSION_PREFIX.$commitCount"
     }
 
     signingConfigs {
@@ -63,7 +75,7 @@ android {
     }
 }
 
-// APKs are named after the app and version, e.g. LumoraTV-0.1.0-release.apk.
+// APKs are named after the app and version, e.g. LumoraTV-0.1.19-release.apk.
 base {
     archivesName = "LumoraTV-${android.defaultConfig.versionName}"
 }

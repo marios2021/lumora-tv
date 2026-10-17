@@ -30,7 +30,7 @@ Install on a TV with developer options and ADB debugging turned on:
 
 ```bash
 adb connect <tv-ip-address>
-adb install -r app/build/outputs/apk/release/LumoraTV-0.1.0-release.apk
+adb install -r app/build/outputs/apk/release/LumoraTV-<version>-release.apk
 ```
 
 ## Release signing
@@ -49,4 +49,6 @@ Release builds are signed with the key described in `keystore.properties` at the
 
 ## Versioning
 
-`versionCode` and `versionName` are in `app/build.gradle.kts`. Increase `versionCode` for every APK you share: Android won't install an update with a lower version code than the copy already installed.
+The version comes from the git history, so it goes up with every commit: `versionCode` is the number of commits on the current branch, and `versionName` is `0.1.<that number>` (for example `LumoraTV-0.1.19-release.apk`). Android only installs an update with a higher version code than the copy already installed, so build what you share from a commit on `main`. A build with uncommitted changes keeps the last commit's number.
+
+For a bigger release, raise `VERSION_PREFIX` in `app/build.gradle.kts` (say to `0.2`). Without git (for example from a source zip), the build uses version code 1 and prints a warning.
