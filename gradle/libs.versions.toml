@@ -43,6 +43,7 @@ datastore-preferences = { module = "androidx.datastore:datastore-preferences", v
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 junit = { module = "junit:junit", version = "4.13.2" }
 kxml2 = { module = "net.sf.kxml:kxml2", version = "2.3.0" }
+json = { module = "org.json:json", version = "20240303" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -14,6 +14,10 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Updates from Settings: the app downloads its new APK and hands it to PackageInstaller.
+         On Android 12+ an app that installed itself may update itself without a confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -48,6 +52,10 @@
 
         <receiver
             android:name=".data.recording.RecordingAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".data.update.UpdateInstallReceiver"
             android:exported="false" />
 
         <receiver

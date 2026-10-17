@@ -84,6 +84,56 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// Updating without a cable (README): assembleRelease also writes update.json next to the APK, for
+// Settings → Updates. Upload both files. The notes are -PupdateNotes="…", or the last commit's
+// subject; -PupdateApkUrl=https://… writes an absolute APK address instead of the file name.
+val writeUpdateJson by tasks.registering {
+    description = "Writes update.json next to the release APK."
+    val versionCode = commitCount
+    val versionName = "$VERSION_PREFIX.$commitCount"
+    val apkUrl = providers.gradleProperty("updateApkUrl").orElse("LumoraTV-$versionName-release.apk")
+    val notes = providers.gradleProperty("updateNotes").orElse(
+        providers.exec { commandLine("git", "log", "-1", "--format=%s"); isIgnoreExitValue = true }
+            .standardOutput.asText.map { it.trim() },
+    )
+    val uncommitted = providers.exec { commandLine("git", "status", "--porcelain", "--untracked-files=no"); isIgnoreExitValue = true }
+        .standardOutput.asText.map { it.isNotBlank() }
+    val signedWithOwnKey = hasReleaseKey
+    val output = layout.buildDirectory.file("outputs/apk/release/update.json")
+    outputs.file(output)
+    outputs.upToDateWhen { false }
+    doLast {
+        fun quote(text: String) = buildString {
+            append('"')
+            for (c in text) when {
+                c == '"' -> append("\\\"")
+                c == '\\' -> append("\\\\")
+                c == '\n' -> append("\\n")
+                c < ' ' -> append(String.format("\\u%04x", c.code))
+                else -> append(c)
+            }
+            append('"')
+        }
+        val json = "{\n" +
+            "  \"versionCode\": $versionCode,\n" +
+            "  \"versionName\": ${quote(versionName)},\n" +
+            "  \"url\": ${quote(apkUrl.get())},\n" +
+            "  \"notes\": ${quote(notes.get())}\n" +
+            "}\n"
+        val file = output.get().asFile
+        file.parentFile.mkdirs()
+        file.writeText(json)
+        logger.lifecycle("Wrote ${file.path} for version $versionName ($versionCode).")
+        if (!signedWithOwnKey) {
+            logger.warn("This APK is signed with the debug key: it can't update a copy signed with your release key.")
+        }
+        if (uncommitted.get()) {
+            logger.warn("Uncommitted changes: commit first, or this build has the same version code as the last commit.")
+        }
+    }
+}
+tasks.matching { it.name == "assembleRelease" }.configureEach { finalizedBy(writeUpdateJson) }
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -117,4 +167,6 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kxml2)
+    // Android's org.json is a stub in JVM unit tests; this is the real one.
+    testImplementation(libs.json)
 }

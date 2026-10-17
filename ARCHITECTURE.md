@@ -32,6 +32,7 @@ data/
   parser/      M3uParser, XmltvParser (streaming, low memory)
   remote/      XtreamClient (player_api.php)
   repo/        PlaylistRepository, EpgRepository, SettingsRepository
+  update/      self-update: update file, GitHub releases, download + PackageInstaller
 AppContainer   wires repositories, DB, OkHttp
 ```
 
@@ -131,6 +132,7 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 8. **Movies and series (Xtream).** VOD and series catalogues by category, details pages, seasons and episodes, and a seekable player that remembers where you stopped.
 9. **Catch-up.** On channels the provider archives (Xtream `tv_archive`, or M3U `catchup` attributes), past programmes in the guide play from the archive.
 10. **Recording.** Record the channel you're watching or schedule programmes from the guide. A foreground service saves the stream to app storage; a Recordings screen plays and deletes them.
+11. **Updates without a cable.** Settings checks an update address, downloads the new APK, verifies it and installs it with PackageInstaller.
 
 ### Live rewind (milestone 6)
 
@@ -175,5 +177,14 @@ Playlists can be edited (name, source, login, EPG URL). If the source changes, t
 - Files are MPEG-TS in the app's storage (`Android/data/com.lumora.tv/files/Recordings`, no storage permission). The Recordings screen plays, stops, cancels and deletes them; playback uses the seekable player.
 - Live MPEG-TS streams go through `StreamHub`, which keeps one connection per stream URL for everyone reading it. Recording the channel you're watching therefore shares the player's connection, and the player joins a recording's connection when you tune to a channel being recorded. IPTV accounts often allow one connection, and a second one gets the provider's "connection limit reached" clip, which a recording would otherwise save.
 - Recording one channel while watching another still needs two connections; the player warns about it when you tune away from a channel being recorded. HLS streams (Xtream format set to HLS) don't go through the hub.
+
+### Updates without a cable (milestone 11)
+
+- Settings → Updates holds the address of an **update file** (`update.json`: `versionCode`, `versionName`, `url`, `notes`), an optional GitHub token, "Check for updates" and "Check automatically". `url` may be relative to the update file, so the two files are uploaded side by side. Publishing is described in the README.
+- `assembleRelease` finishes with the `writeUpdateJson` task (`app/build.gradle.kts`), which writes `update.json` next to the APK from the same version code and name the APK gets.
+- `UpdateManifest` parses the file; an update is a strictly higher `versionCode` than the installed one (numbers, never version names). `GitHubReleases` turns `github.com/<owner>/<repo>/releases/…/download/<file>` into the REST API calls a private repository needs (release by tag or latest, then the file as `application/octet-stream`); without a token, addresses are downloaded as they are.
+- `Updater` (in `AppContainer`) checks 20 s after start and then hourly, but reads the address at most once a day; an automatic check that finds a version shows a toast once. Its `UpdateState` drives the Settings rows.
+- **Install:** on Android 8+ it first needs "Install unknown apps" for Lumora TV (`REQUEST_INSTALL_PACKAGES`, `canRequestPackageInstalls`). Without it, a dialog explains and opens `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (or the security settings on devices without that screen); coming back resumes the install. The APK is downloaded with the app's OkHttp client into `cache/update/`, then checked with `getPackageArchiveInfo`: same package, higher version code, same signing certificates as the installed app. It is written into a `PackageInstaller` session; `UpdateInstallReceiver` gets the result, opens Android's confirmation when the session asks for it, and reports failures back to Settings. On success Android replaces the app and restarts it (`MY_PACKAGE_REPLACED` re-arms scheduled recordings).
+- Sessions ask for `USER_ACTION_NOT_REQUIRED` on Android 12+ (`UPDATE_PACKAGES_WITHOUT_USER_ACTION`), which lets Android skip the confirmation once Lumora TV is its own installer of record.
 
 Later: multi-view, picture-in-picture.

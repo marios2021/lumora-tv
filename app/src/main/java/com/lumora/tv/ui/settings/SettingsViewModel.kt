@@ -8,6 +8,9 @@ import com.lumora.tv.data.repo.ParentalControl
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.lumora.tv.data.repo.SettingsRepository
+import com.lumora.tv.data.update.UpdateInfo
+import com.lumora.tv.data.update.UpdateState
+import com.lumora.tv.data.update.Updater
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +20,7 @@ class SettingsViewModel(
     private val repo: SettingsRepository,
     private val autoRefresher: AutoRefresher,
     private val parental: ParentalControl,
+    private val updater: Updater,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = repo.current
@@ -61,6 +65,23 @@ class SettingsViewModel(
             _refreshMessage.value = autoRefresher.refreshAllNow()
         }
     }
+
+    val update: StateFlow<UpdateState> = updater.state
+    val installedVersionName: String get() = updater.installedVersionName
+
+    fun setUpdateSource(url: String, token: String) = change { it.copy(updateUrl = url.trim(), updateToken = token.trim()) }
+
+    fun toggleAutoUpdateCheck() = change { it.copy(autoUpdateCheck = !it.autoUpdateCheck) }
+
+    fun checkForUpdates() = updater.checkNow()
+
+    fun installUpdate(info: UpdateInfo) = updater.install(info)
+
+    fun permissionScreenIntent() = updater.permissionScreenIntent()
+
+    fun dismissPermissionRequest() = updater.dismissPermissionRequest()
+
+    fun onResume() = updater.onReturnFromPermissionScreen()
 
     private fun change(transform: (AppSettings) -> AppSettings) {
         viewModelScope.launch { repo.update(transform) }

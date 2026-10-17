@@ -58,6 +58,12 @@ data class AppSettings(
     val autoRefreshHours: Int = 12,
     val startOnLastChannel: Boolean = false,
     val videoOutput: VideoOutput = VideoOutput.AUTO,
+    /** Address of the update file (update.json) published with each release; empty turns updates off. */
+    val updateUrl: String = "",
+    /** GitHub access token for update files in a private repository's releases; usually empty. */
+    val updateToken: String = "",
+    /** Check the update address at most once a day while the app is open. */
+    val autoUpdateCheck: Boolean = true,
 ) {
     companion object {
         val AUTO_REFRESH_CHOICES = listOf(0, 6, 12, 24, 48)
@@ -80,7 +86,17 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             p[AUTO_REFRESH_HOURS] = new.autoRefreshHours
             p[START_ON_LAST_CHANNEL] = new.startOnLastChannel
             p[VIDEO_OUTPUT] = new.videoOutput.name
+            p[UPDATE_URL] = new.updateUrl
+            p[UPDATE_TOKEN] = new.updateToken
+            p[AUTO_UPDATE_CHECK] = new.autoUpdateCheck
         }
+    }
+
+    /** When the update address was last read successfully (epoch ms), for the once-a-day check. */
+    suspend fun lastUpdateCheck(): Long = context.dataStore.data.first()[LAST_UPDATE_CHECK] ?: 0L
+
+    suspend fun setLastUpdateCheck(time: Long) {
+        context.dataStore.edit { it[LAST_UPDATE_CHECK] = time }
     }
 
     val activePlaylistId: Flow<Long?> = context.dataStore.data.map { it[ACTIVE_PLAYLIST] }
@@ -149,6 +165,9 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         startOnLastChannel = this[START_ON_LAST_CHANNEL] ?: false,
         videoOutput = this[VIDEO_OUTPUT]?.let { runCatching { VideoOutput.valueOf(it) }.getOrNull() }
             ?: VideoOutput.AUTO,
+        updateUrl = this[UPDATE_URL] ?: "",
+        updateToken = this[UPDATE_TOKEN] ?: "",
+        autoUpdateCheck = this[AUTO_UPDATE_CHECK] ?: true,
     )
 
     private companion object {
@@ -161,6 +180,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val AUTO_REFRESH_HOURS = intPreferencesKey("auto_refresh_hours")
         val START_ON_LAST_CHANNEL = booleanPreferencesKey("start_on_last_channel")
         val VIDEO_OUTPUT = stringPreferencesKey("video_output")
+        val UPDATE_URL = stringPreferencesKey("update_url")
+        val UPDATE_TOKEN = stringPreferencesKey("update_token")
+        val AUTO_UPDATE_CHECK = booleanPreferencesKey("auto_update_check")
+        val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
         val PIN_HASH = stringPreferencesKey("pin_hash")
         val PIN_SALT = stringPreferencesKey("pin_salt")
     }

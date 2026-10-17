@@ -11,6 +11,7 @@ import com.lumora.tv.data.repo.ParentalControl
 import com.lumora.tv.data.repo.PlaylistRepository
 import com.lumora.tv.data.repo.SettingsRepository
 import com.lumora.tv.data.repo.VodRepository
+import com.lumora.tv.data.update.Updater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +49,7 @@ class AppContainer(context: Context) {
     val epg = EpgRepository(appContext, database, http, appScope)
     val autoRefresher = AutoRefresher(playlists, epg, settings, appScope)
     val recordings = RecordingRepository(appContext, database)
+    val updater = Updater(appContext, http, settings, appScope)
 
     /** Live stream connections, shared by the player and recordings of the same channel. */
     val streamHub = StreamHub()
