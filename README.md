@@ -73,18 +73,24 @@ Lumora TV can update itself from **Settings → Updates**: publish each new vers
 
    Add `-PupdateNotes="What's new"` to write your own notes (they show in Settings), or `-PupdateApkUrl=https://…` if the APK is hosted somewhere other than next to `update.json`. The build warns when the APK is signed with the debug key or the working tree has uncommitted changes (the version code wouldn't go up).
 
-2. **Upload `update.json` and the APK side by side**, for example as a GitHub release:
+2. **Upload `update.json` and the APK side by side** as a release of this (public) repository:
 
    ```bash
-   gh release create v0.1.20 app/build/outputs/apk/release/LumoraTV-0.1.20-release.apk app/build/outputs/apk/release/update.json --title 0.1.20 --notes "What's new"
+   gh release create v0.1.20 app/build/outputs/apk/release/LumoraTV-0.1.20-release.apk app/build/outputs/apk/release/update.json --repo marios2021/lumora-tv --title 0.1.20 --notes "What's new"
    ```
 
-   The update address is then `https://github.com/<you>/<repo>/releases/latest/download/update.json`. It always points at the newest release, so it never needs changing on the devices.
+   The update address to enter on each device is then:
+
+   ```
+   https://github.com/marios2021/lumora-tv/releases/latest/download/update.json
+   ```
+
+   It always points at the newest release, so it never needs changing on the devices. The APK's address in `update.json` is just its file name, which resolves to the same release.
 
 Where the files can live:
 
-- **GitHub release, public repository:** the address above, nothing else needed.
-- **GitHub release, private repository:** the same address, plus an access token in the Update address dialog. Create a fine-grained token (GitHub → Settings → Developer settings → Fine-grained tokens) with access to that one repository and *Repository permissions → Contents: Read-only*. With a token set, the app reads the release through the GitHub API (`api.github.com`), which is the only way to download a private repository's files. The token is stored in the app's settings on each device and is only sent to `api.github.com`.
+- **GitHub release, public repository** (this one): the address above, nothing else needed. No token is built into the app.
+- **GitHub release, private repository:** the same kind of address, plus an access token typed in in the Update address dialog. Create a fine-grained token (GitHub → Settings → Developer settings → Fine-grained tokens) with access to that one repository and *Repository permissions → Contents: Read-only*. With a token set, the app reads the release through the GitHub API (`api.github.com`), which is the only way to download a private repository's files. The token is stored in the app's settings on each device and is only sent to `api.github.com`.
 - **Any web server or file host with direct download links** (no sign-in and no "download" page in between): put both files in the same folder and use the address of `update.json`. A local test works too, for example `python -m http.server 8000` in the release folder and `http://<pc-ip>:8000/update.json`. Google Drive share links don't work, because they open a web page instead of the file.
 
 ### On each device (once)
