@@ -11,6 +11,7 @@ import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.IntentCompat
 import androidx.core.content.pm.PackageInfoCompat
@@ -128,7 +129,7 @@ class Updater(
         val before = _state.value
         _state.value = UpdateState.Checking
         return try {
-            val json = open(url, binary = false).use { it.body!!.string() }
+            val json = open(url).use { it.body!!.string() }
             val info = UpdateManifest.parse(json, url)
             settings.setLastUpdateCheck(System.currentTimeMillis())
             if (UpdateManifest.isNewer(info, installedVersionCode)) {
@@ -141,6 +142,7 @@ class Updater(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            Log.w(TAG, "Update check failed", e)
             _state.value = if (quiet) before else UpdateState.Failed("Couldn't check for updates: ${e.readable()}", null)
             null
         }
@@ -156,24 +158,14 @@ class Updater(
         job = scope.launch(Dispatchers.IO) {
             try {
                 _state.value = UpdateState.Downloading(info, 0f)
-                val apk = try {
-                    download(info)
-                } catch (e: IOException) {
-                    if (e is HttpFailure) throw e
-                    // Wi-Fi drops and servers that close early: one more go before giving up.
-                    delay(RETRY_DELAY_MS)
-                    try {
-                        download(info)
-                    } catch (e: IOException) {
-                        throw IOException("Couldn't download the update: ${e.readable()}", e)
-                    }
-                }
+                val apk = download(info)
                 verify(apk)
                 _state.value = UpdateState.Installing(info)
                 commit(apk)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "Update to ${info.versionName} failed", e)
                 downloadDir.deleteRecursively()
                 _state.value = UpdateState.Failed(e.readable(), info)
             }
@@ -206,11 +198,33 @@ class Updater(
         _state.value = UpdateState.Available(waiting.info)
     }
 
-    private fun download(info: UpdateInfo): File {
+    /** Downloads the APK. Wi-Fi drops and servers that close early get a few more goes before giving up. */
+    private suspend fun download(info: UpdateInfo): File {
         downloadDir.deleteRecursively()
         downloadDir.mkdirs()
         val file = File(downloadDir, "LumoraTV-${info.versionCode}.apk")
-        open(info.apkUrl, binary = true).use { response ->
+        var attempt = 1
+        while (true) {
+            try {
+                downloadOnce(info, file)
+                return file
+            } catch (e: IOException) {
+                if (e is HttpFailure || attempt == DOWNLOAD_ATTEMPTS) {
+                    throw IOException("Couldn't download the update: ${e.readable()}", e)
+                }
+                Log.w(TAG, "Download attempt $attempt broke off after ${file.length()} bytes", e)
+                delay(RETRY_DELAY_MS * attempt)
+                attempt++
+            }
+        }
+    }
+
+    /**
+     * Downloads the whole file again on every attempt: resuming could join two different files when
+     * a new version is published in between (the address usually points at the latest release).
+     */
+    private fun downloadOnce(info: UpdateInfo, file: File) {
+        open(info.apkUrl).use { response ->
             val body = response.body!!
             val total = body.contentLength().takeIf { it > 0 }
             var done = 0L
@@ -233,7 +247,6 @@ class Updater(
             }
             if (total != null && done != total) throw IOException("the download stopped at ${done * 100 / total} %.")
         }
-        return file
     }
 
     /** The download must be this app, newer, and signed with the same key, or Android would refuse it anyway. */
@@ -332,7 +345,7 @@ class Updater(
      * Opens [url]. With an access token set, files of a GitHub release are fetched through the API, which
      * also works for private repositories; anything else is a plain download. The caller closes the response.
      */
-    private fun open(url: String, binary: Boolean): Response {
+    private fun open(url: String): Response {
         val token = settings.current.value.updateToken.trim()
         val ref = if (token.isEmpty()) null else GitHubReleases.parse(url)
         val request = if (ref == null) {
@@ -384,10 +397,12 @@ class Updater(
     }
 
     companion object {
+        private const val TAG = "Updater"
         const val ACTION_INSTALL_STATUS = "com.lumora.tv.UPDATE_INSTALL_STATUS"
         private val AUTO_START_DELAY_MS = TimeUnit.SECONDS.toMillis(20)
         private val AUTO_EVERY_MS = TimeUnit.HOURS.toMillis(1)
         private val AUTO_INTERVAL_MS = TimeUnit.DAYS.toMillis(1)
+        private const val DOWNLOAD_ATTEMPTS = 4
         private val RETRY_DELAY_MS = TimeUnit.SECONDS.toMillis(2)
     }
 }
