@@ -57,7 +57,7 @@ sealed interface UpdateState {
  * checks the address set in Settings (by hand, or at most once a day while the app is open),
  * downloads the APK, checks it is this app signed with the same key, and installs it with
  * [PackageInstaller]. Android may ask the user to confirm; it then replaces the app, and
- * [UpdateRelaunchReceiver] opens the new version.
+ * [UpdateRelaunchReceiver] opens the new version where Android allows it.
  */
 class Updater(
     private val context: Context,
@@ -425,8 +425,8 @@ class UpdateInstallReceiver : BroadcastReceiver() {
 
 /**
  * Opens the new version after Lumora TV updated itself (Android leaves the user on the home screen).
- * Only after an update started in Settings, not after installs by cable. Android 10+ may not allow
- * an app to open itself from the background; the user then opens it from the launcher.
+ * Only after an update started in Settings, not after installs by cable. Works up to Android 9:
+ * Android 10+ blocks background activity starts, and the user opens the app from the launcher.
  */
 class UpdateRelaunchReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
